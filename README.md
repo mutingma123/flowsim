@@ -321,6 +321,62 @@ unknown outcome with zero.
 | `failures.csv` | Per-server failure times, sampled lifetimes, repair requirements, and observed repair ends. The file has only a header when no station fails. |
 | `metadata.json` | The FlowSim version, run settings (time unit, duration, warm-up, seed, drain), end time, capacities, per-node settings, routes, and text definitions of the measurement windows and cohorts. |
 
+## Fitting durations to data
+
+`best_fit(data)` fits eight common families to a sample of durations by
+maximum likelihood with SciPy and ranks them by the one-sample
+Kolmogorov-Smirnov (KS) statistic, i.e., the largest vertical gap between the
+data's empirical CDF and the fitted CDF. The statistic uses no random draws, so
+the ranking is the same on every run. `sampler(family, params)` turns one row of
+that table into a duration sampler for any station or source.
+
+```python
+import numpy as np
+
+from flowsim import Model, best_fit, sampler
+
+observed = np.random.default_rng(7).gamma(
+    shape=4,
+    scale=1.5,
+    size=200,
+)
+fits = best_fit(observed)
+print(fits.select("rank", "family", "ks", "lower", "upper"))
+
+best = fits.row(0, named=True)
+model = Model(time_unit="minutes")
+jobs = model.source(
+    name="Jobs",
+    interarrival=lambda rng: rng.exponential(scale=8),
+)
+machine = model.station(
+    name="Machine",
+    capacity=1,
+    service_time=sampler(
+        family=best["family"],
+        params=best["params"],
+    ),
+)
+model.route([jobs, machine, model.exit])
+fitted_run = model.run(
+    duration=480,
+    seed=42,
+)
+print(fitted_run.stations.select("station", "mean_wait", "utilization"))
+```
+
+`FAMILIES` lists the eight SciPy names (`norm`, `lognorm`, `uniform`, `triang`,
+`expon`, `gamma`, `weibull_min`, and `beta`), which cover symmetric data, a
+minimum, mode, and maximum estimated without data, interarrival times,
+right-skewed durations, and bounded data. Passing `families=` searches a
+different list of SciPy continuous distributions. A family whose fit fails is
+left out of the table rather than ranked last. The `lower` and `upper` columns
+are the fitted support. A finite `upper` (e.g., uniform, triangular, or a
+bounded beta) means no simulated duration can exceed it, which removes the long
+right tail that a stress test is meant to examine. The sampler does not clip
+draws, so a family with negative support near zero (e.g., a normal fitted to
+short times) can produce a negative duration, and the run stops with an error.
+
 ## Model features
 
 The examples above use one source, a straight route, and stations with a fixed
