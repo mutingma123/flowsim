@@ -600,6 +600,16 @@ def interval_estimate(values: np.ndarray, confidence: float) -> dict:
 
 
 class Results:
+    """One run's records, metrics, and plots.
+
+    `summary` holds one row of system metrics and `stations` one row per station.
+    The raw records are `customers`, `visits`, `states`, `activities`,
+    `failures`, `inventory`, and `shipments`, and `stock_points` holds a supply
+    chain's metrics. Time averages (utilization, queue length, work in process)
+    cover warm-up to closing. Per-customer averages (waits and flow times)
+    include customers a drained run finishes after closing.
+    """
+
     def __init__(
         self,
         customers: list[_Customer],
@@ -960,36 +970,43 @@ class Results:
     # plots imports METRICS from this module at load time, so each plot
     # method imports its function when called.
     def queue_plot(self) -> Figure:
+        """Plot each station's waiting customers and occupied servers over time."""
         from flowsim.plots import queue_plot
 
         return queue_plot(self)
 
     def wait_plot(self) -> Figure:
+        """Plot a histogram of each station's waiting times after warm-up."""
         from flowsim.plots import wait_plot
 
         return wait_plot(self)
 
     def utilization_plot(self) -> Figure:
+        """Plot each station's utilization, i.e., the share of capacity holding a job."""
         from flowsim.plots import utilization_plot
 
         return utilization_plot(self)
 
     def resource_plot(self) -> Figure:
+        """Plot each station's processing, blocked, paused, down, and staffed servers over time."""
         from flowsim.plots import resource_plot
 
         return resource_plot(self)
 
     def customer_plot(self, customer_id: int) -> Figure:
+        """Plot one customer's waiting, service, blocked, and paused time at each station."""
         from flowsim.plots import customer_plot
 
         return customer_plot(self, customer_id)
 
     def inventory_plot(self) -> Figure:
+        """Plot one stock point's stock, backorders, and orders, with a menu."""
         from flowsim.plots import inventory_plot
 
         return inventory_plot(self)
 
     def orders_plot(self) -> Figure:
+        """Plot consumer demand and every stage's orders, which shows the bullwhip."""
         from flowsim.plots import orders_plot
 
         return orders_plot(self)
@@ -1089,6 +1106,7 @@ class Experiment:
     # and exports always read the runs' current values.
     @property
     def stations(self) -> pl.DataFrame:
+        """Return the station metrics, one row per station in each replication."""
         return pl.concat(
             [
                 run.stations.select(
@@ -1101,6 +1119,7 @@ class Experiment:
 
     @property
     def stock_points(self) -> pl.DataFrame:
+        """Return the stock-point metrics, one row per stock point in each replication."""
         return pl.concat(
             [
                 run.stock_points.select(
@@ -1113,6 +1132,7 @@ class Experiment:
 
     @property
     def summary(self) -> pl.DataFrame:
+        """Return the system metrics, one row per replication."""
         return pl.concat(
             [
                 run.summary.select(
@@ -1124,6 +1144,7 @@ class Experiment:
         )
 
     def stock_point_names(self) -> list[str]:
+        """Return the supply chain's stock-point names, or an empty list."""
         supply = self.runs[0].supply
         return [] if supply is None else supply["chain"][1:]
 

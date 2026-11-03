@@ -884,6 +884,7 @@ class Model:
                 stack.extend(destination for destination, _ in rule)
 
     def diagram(self) -> Figure:
+        """Draw the stations and routes as a left-to-right network diagram."""
         self.validate()
         if self._supply is not None:
             raise ValueError(

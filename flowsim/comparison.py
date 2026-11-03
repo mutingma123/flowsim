@@ -30,6 +30,11 @@ from flowsim.results import (
 
 
 class Comparison:
+    """Named scenarios run on the same replication seeds, for paired comparisons.
+
+    The first scenario is the baseline unless a method names another.
+    """
+
     def __init__(self, experiments: dict[str, Experiment]):
         if len(experiments) < 2:
             raise ValueError("A comparison needs at least two experiments.")
@@ -53,6 +58,7 @@ class Comparison:
     # estimates and exports always read the same replication values.
     @property
     def summary(self) -> pl.DataFrame:
+        """Return every scenario's system metrics, one row per replication."""
         return pl.concat(
             [
                 experiment.summary.select(pl.lit(name).alias("scenario"), pl.all())
@@ -62,6 +68,7 @@ class Comparison:
 
     @property
     def stations(self) -> pl.DataFrame:
+        """Return every scenario's station metrics, one row per station and replication."""
         return pl.concat(
             [
                 experiment.stations.select(pl.lit(name).alias("scenario"), pl.all())
@@ -71,6 +78,7 @@ class Comparison:
 
     @property
     def stock_points(self) -> pl.DataFrame:
+        """Return every scenario's stock-point metrics, one row per stock point and replication."""
         return pl.concat(
             [
                 experiment.stock_points.select(pl.lit(name).alias("scenario"), pl.all())
@@ -126,6 +134,7 @@ class Comparison:
         stock_point: str | None = None,
         confidence: float = 0.95,
     ) -> pl.DataFrame:
+        """Estimate a metric's mean in each scenario with a Student t interval."""
         level = confidence_level(confidence)
         rows = []
         for name, experiment in self.experiments.items():
@@ -159,6 +168,7 @@ class Comparison:
         stock_point: str | None = None,
         confidence: float = 0.95,
     ) -> pl.DataFrame:
+        """Estimate each scenario minus the baseline, paired by replication."""
         reference = self._reference(baseline)
         level = confidence_level(confidence)
         baseline_values = self._values(
@@ -208,6 +218,7 @@ class Comparison:
         differences: bool = False,
         baseline: str | None = None,
     ) -> go.Figure:
+        """Plot each scenario's interval, or its paired difference from the baseline."""
         table = (
             self.differences(
                 metric=metric,
@@ -287,6 +298,7 @@ class Comparison:
         confidence: float = 0.95,
         baseline: str | None = None,
     ) -> str:
+        """Return an offline HTML page of the intervals and differences, optionally saving it."""
         reference = self._reference(baseline)
         means = self.plot(
             metric=metric,
@@ -396,6 +408,7 @@ class Comparison:
         confidence: float = 0.95,
         baseline: str | None = None,
     ) -> Path:
+        """Write the runs, stations, intervals, differences, and settings to a folder."""
         reference = self._reference(baseline)
         intervals = self.intervals(
             metric=metric,
