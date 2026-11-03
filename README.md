@@ -341,7 +341,7 @@ observed = np.random.default_rng(7).gamma(
     size=200,
 )
 fits = best_fit(observed)
-print(fits.select("rank", "family", "ks", "lower", "upper"))
+print(fits.select("rank", "family", "ks", "lower", "upper", "loc_fixed"))
 
 best = fits.row(0, named=True)
 model = Model(time_unit="minutes")
@@ -373,9 +373,19 @@ different list of SciPy continuous distributions. A family whose fit fails is
 left out of the table rather than ranked last. The `lower` and `upper` columns
 are the fitted support. A finite `upper` (e.g., uniform, triangular, or a
 bounded beta) means no simulated duration can exceed it, which removes the long
-right tail that a stress test is meant to examine. The sampler does not clip
-draws, so a family with negative support near zero (e.g., a normal fitted to
-short times) can produce a negative duration, and the run stops with an error.
+right tail that a stress test is meant to examine.
+
+A free maximum-likelihood fit can start below zero even when every observation
+is positive (e.g., a lognormal fitted to right-skewed processing times often
+shifts its start to a negative value), and the sampler does not clip draws, so a
+negative duration would stop the run with an error. By default
+(`nonnegative=True`), `best_fit` refits any family that starts below zero with
+its start (SciPy's `loc`) held at zero and marks that row in the `loc_fixed`
+column. A family that still reaches below zero, such as the normal, whose `loc`
+is its mean, or whose refit fails (e.g., a lognormal or gamma on data with an
+exact zero), is left out. Every row is then safe to hand to `sampler`. The data
+must have no negative values. Pass `nonnegative=False` to fit every family
+freely, as SciPy does, for data that can be negative.
 
 ## Model features
 

@@ -1,7 +1,7 @@
 """Define, simulate, and explore small service networks and supply chains."""
 
 # results imports the version while this package loads, so it comes first.
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 from flowsim.comparison import Comparison, compare
 from flowsim.fitting import FAMILIES, best_fit, sampler

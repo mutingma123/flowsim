@@ -39,10 +39,16 @@ _SCHEMA = {
     "params": pl.List(pl.Float64),
     "lower": pl.Float64,
     "upper": pl.Float64,
+    "loc_fixed": pl.Boolean,
 }
 
 
-def best_fit(data, families: Sequence[str] = FAMILIES) -> pl.DataFrame:
+def best_fit(
+    data,
+    families: Sequence[str] = FAMILIES,
+    *,
+    nonnegative: bool = True,
+) -> pl.DataFrame:
     """Rank families by the one-sample Kolmogorov-Smirnov statistic of each fit.
 
     Each family is fitted by maximum likelihood with SciPy's `fit`, and the KS
@@ -52,15 +58,31 @@ def best_fit(data, families: Sequence[str] = FAMILIES) -> pl.DataFrame:
     left out of the table. `lower` and `upper` are the fitted distribution's
     support, so an infinite `upper` means draws have no ceiling and a finite one
     (e.g., beta, triangular, uniform) means no draw can exceed it.
+
+    With `nonnegative=True` (the default, for durations), every row has `lower`
+    at least zero, so no row's sampler can draw a negative time. A fit that
+    starts below zero is refitted with its start (SciPy's `loc`) held at zero
+    and marked in `loc_fixed`, and a family that still reaches below zero (e.g.,
+    the normal, whose `loc` is its mean) or whose refit fails is left out. The
+    data must then have no negative values. `nonnegative=False` fits every
+    family freely, as SciPy does.
     """
     values = _data(data)
+    if nonnegative and values.min() < 0:
+        raise ValueError(
+            "The data contain negative values. Pass nonnegative=False to fit them."
+        )
     rows = []
     for name in _names(families):
         family = getattr(st, name)
+        loc_fixed = False
         try:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 params = family.fit(values)
+                if nonnegative and family(*params).support()[0] < 0:
+                    params = family.fit(values, floc=0)
+                    loc_fixed = True
                 fitted = family(*params)
                 ks = float(st.kstest(values, fitted.cdf).statistic)
                 lower, upper = fitted.support()
@@ -68,7 +90,7 @@ def best_fit(data, families: Sequence[str] = FAMILIES) -> pl.DataFrame:
         # failed fit means only that this family is not ranked.
         except Exception:
             continue
-        if not math.isfinite(ks):
+        if not math.isfinite(ks) or (nonnegative and lower < 0):
             continue
         rows.append(
             {
@@ -77,6 +99,7 @@ def best_fit(data, families: Sequence[str] = FAMILIES) -> pl.DataFrame:
                 "params": [float(p) for p in params],
                 "lower": float(lower),
                 "upper": float(upper),
+                "loc_fixed": loc_fixed,
             }
         )
     if not rows:

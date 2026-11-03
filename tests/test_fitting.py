@@ -31,7 +31,15 @@ def test_ranking_is_sorted_by_the_ks_statistic_of_each_fit():
         size=200,
     )
     fits = best_fit(data)
-    assert fits.columns == ["rank", "family", "ks", "params", "lower", "upper"]
+    assert fits.columns == [
+        "rank",
+        "family",
+        "ks",
+        "params",
+        "lower",
+        "upper",
+        "loc_fixed",
+    ]
     assert set(fits["family"]) <= set(FAMILIES)
     assert fits["rank"].to_list() == list(range(1, fits.height + 1))
     assert fits["ks"].is_sorted()
@@ -151,3 +159,60 @@ def test_a_negative_draw_stops_the_run():
             duration=30,
             seed=1,
         )
+
+
+def test_a_fit_that_starts_below_zero_is_refitted_at_zero():
+    # On right-skewed positive data, the free lognormal fit shifts its start below
+    # zero. The default refits it with loc held at zero, i.e., SciPy's floc=0.
+    data = np.random.default_rng(1).gamma(
+        shape=2.78,
+        scale=1.62,
+        size=300,
+    )
+    free = best_fit(
+        data=data,
+        families=["lognorm"],
+        nonnegative=False,
+    ).row(0, named=True)
+    assert free["lower"] < 0
+    assert free["loc_fixed"] is False
+    fixed = best_fit(
+        data=data,
+        families=["lognorm"],
+    ).row(0, named=True)
+    assert fixed["loc_fixed"] is True
+    assert fixed["lower"] == 0
+    assert fixed["params"] == pytest.approx(list(st.lognorm.fit(data, floc=0)))
+    refitted = st.lognorm(*fixed["params"])
+    assert fixed["ks"] == pytest.approx(st.kstest(data, refitted.cdf).statistic)
+
+
+def test_nonnegative_fits_never_start_below_zero():
+    data = np.random.default_rng(1).gamma(
+        shape=2.78,
+        scale=1.62,
+        size=300,
+    )
+    fits = best_fit(data)
+    assert (fits["lower"] >= 0).all()
+    # The normal reaches below zero wherever its mean is, so it is left out.
+    assert "norm" not in fits["family"].to_list()
+    assert "norm" in best_fit(data, nonnegative=False)["family"].to_list()
+    # A fit that already starts at or above zero is not refitted.
+    uniform = best_fit(
+        data=[2.0, 3.0, 5.0, 10.0],
+        families=["uniform"],
+    ).row(0, named=True)
+    assert uniform["loc_fixed"] is False
+
+
+def test_negative_data_need_nonnegative_false():
+    data = [-2.0, -1.0, 0.5, 3.0]
+    with pytest.raises(ValueError, match="nonnegative=False"):
+        best_fit(data)
+    fits = best_fit(
+        data=data,
+        families=["uniform"],
+        nonnegative=False,
+    )
+    assert fits.row(0, named=True)["lower"] == pytest.approx(-2)
