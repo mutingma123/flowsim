@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from flowsim.distributions import Distribution
 from flowsim.results import (
     SUPPLIER,
     Results,
@@ -110,6 +111,48 @@ class _Same:
 
     def __eq__(self, other: object) -> bool:
         return isinstance(other, _Same) and other.value is self.value
+
+
+def _spec(value: object) -> object:
+    """Encode a duration for export: a number, a distribution's repr, or a marker."""
+    if value is None:
+        return None
+    # A built-in distribution records its constructor and full-precision
+    # arguments. Any other callable, including a user's own subclass, cannot be
+    # rebuilt from the export.
+    if (
+        isinstance(value, Distribution)
+        and type(value).__module__ == Distribution.__module__
+    ):
+        return value.spec()
+    if isinstance(value, Mapping):
+        return {kind: _spec(item) for kind, item in value.items()}
+    if callable(value):
+        return "<function>"
+    return float(value)
+
+
+def _has_function(spec: object) -> bool:
+    if isinstance(spec, dict):
+        return any(_has_function(item) for item in spec.values())
+    return spec == "<function>"
+
+
+def _node_specs(node) -> dict:
+    """The distribution settings and reconstructibility of a source or station."""
+    specs = {
+        "interarrival": _spec(node.interarrival),
+        "service_time": _spec(node.service_time),
+        "patience": _spec(node.patience),
+        "time_to_failure": _spec(node.time_to_failure),
+        "repair_time": _spec(node.repair_time),
+    }
+    return {
+        **specs,
+        "first_arrival": node.first_arrival,
+        "limit": node.limit,
+        "reconstructible": not any(_has_function(spec) for spec in specs.values()),
+    }
 
 
 class _Run:
@@ -554,9 +597,7 @@ class _Run:
                     "lead_time": (
                         "production"
                         if stock.node.lead_time is None
-                        else "sampled"
-                        if callable(stock.node.lead_time)
-                        else stock.node.lead_time
+                        else _spec(stock.node.lead_time)
                     ),
                     "batch_size": stock.node.batch_size,
                     "cover": stock.cover,
@@ -567,6 +608,14 @@ class _Run:
                 }
                 for stock in self.stocks
             },
+            "demand": _spec(chain.demand.per_period),
+            "reconstructible": not any(
+                _has_function(_spec(duration))
+                for duration in [
+                    chain.demand.per_period,
+                    *[stock.node.lead_time for stock in self.stocks],
+                ]
+            ),
         }
 
     def execute(self) -> Results:
@@ -617,6 +666,7 @@ class _Run:
                     "priority": None if node.priority is None else dict(node.priority),
                     "abandon_from": node.abandon_from,
                     "failures_enabled": node.time_to_failure is not None,
+                    **_node_specs(node),
                 }
                 for name, node in self.model.nodes.items()
                 if node.kind in {"source", "station", "exit"}

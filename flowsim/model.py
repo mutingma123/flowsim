@@ -18,6 +18,7 @@ from flowsim.policies import OrderUpTo
 from flowsim.results import SUPPLIER, Experiment, Results
 from flowsim.schedules import validate_schedule
 from flowsim.validation import Duration, integer, number
+from flowsim.validation import duration as duration_check
 
 if TYPE_CHECKING:
     from plotly.graph_objects import Figure
@@ -111,8 +112,7 @@ def _typed_durations(times: Mapping, label: str) -> Mapping[str, Duration]:
     durations = {}
     for kind, duration in times.items():
         name = _type_name(kind)
-        if not callable(duration):
-            number(duration, f"{label} for type {name!r}")
+        duration_check(duration, f"{label} for type {name!r}")
         durations[name] = duration
     return MappingProxyType(durations)
 
@@ -256,8 +256,8 @@ class Model:
                 points=rates,
                 label="Arrival rate schedule",
             )
-        elif not callable(interarrival):
-            number(
+        else:
+            duration_check(
                 value=interarrival,
                 label="Interarrival time",
                 positive=True,
@@ -324,8 +324,8 @@ class Model:
         count = integer(capacity, "Station capacity")
         if isinstance(service_time, Mapping):
             service_time = _typed_durations(service_time, "Service time")
-        elif not callable(service_time):
-            number(service_time, "Service time")
+        else:
+            duration_check(service_time, "Service time")
         staff = None
         if staffing is not None:
             if shift_end not in {"finish", "pause"}:
@@ -360,14 +360,12 @@ class Model:
                 raise ValueError(
                     "Failures require failure_clock='available' or 'busy'."
                 )
-            if not callable(time_to_failure):
-                number(
-                    value=time_to_failure,
-                    label="Time to failure",
-                    positive=True,
-                )
-            if not callable(repair_time):
-                number(repair_time, "Repair time")
+            duration_check(
+                value=time_to_failure,
+                label="Time to failure",
+                positive=True,
+            )
+            duration_check(repair_time, "Repair time")
         elif failure_clock is not None:
             raise ValueError("failure_clock requires time_to_failure and repair_time.")
         if patience is not None:
@@ -382,8 +380,8 @@ class Model:
                 )
             if isinstance(patience, Mapping):
                 patience = _typed_durations(patience, "Patience")
-            elif not callable(patience):
-                number(patience, "Patience")
+            else:
+                duration_check(patience, "Patience")
         elif abandon_from is not None:
             raise ValueError("abandon_from requires patience.")
         return self._add(
@@ -407,8 +405,7 @@ class Model:
 
     def demand(self, name: str, per_period: Duration) -> Node:
         """Create consumer demand, a quantity drawn once per review period."""
-        if not callable(per_period):
-            number(per_period, "Demand per period")
+        duration_check(per_period, "Demand per period")
         return self._add(
             Node(
                 name=name,
@@ -460,13 +457,18 @@ class Model:
                 "produces at stations."
             )
         elif callable(lead_time):
+            duration_check(
+                value=lead_time,
+                label="Lead time",
+                positive=True,
+            )
             if policy.cover is None:
                 raise ValueError(
                     "A sampled lead time needs an explicit cover in order_up_to, "
                     "since FlowSim does not estimate the lead time's mean."
                 )
         else:
-            number(
+            duration_check(
                 value=lead_time,
                 label="Lead time",
                 positive=True,

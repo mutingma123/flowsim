@@ -558,6 +558,9 @@ def test_supply_run_exports_its_tables_and_settings(tmp_path):
     metadata = json.loads((tmp_path / "metadata.json").read_text())
     assert metadata["supply"]["chain"] == ["Consumers", "Retailer"]
     assert metadata["supply"]["stock_points"]["Retailer"]["cover"] == 2
+    assert metadata["supply"]["stock_points"]["Retailer"]["lead_time"] == 2.0
+    assert metadata["supply"]["demand"] == "<function>"
+    assert metadata["supply"]["reconstructible"] is False
     html = result.viewer(tmp_path / "viewer.html")
     assert "FlowSim supply chain" in html
     assert (tmp_path / "viewer.html").exists()
