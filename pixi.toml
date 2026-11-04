@@ -11,7 +11,7 @@ format = "ruff format flowsim examples tests"
 format-check = "ruff format --check flowsim examples tests"
 notebook-check = "marimo check --strict examples/lesson.py"
 typecheck = "pyright flowsim"
-check = { depends-on = ["test", "lint", "format-check", "notebook-check"] }
+check = { depends-on = ["test", "lint", "format-check", "notebook-check", "typecheck"] }
 demo = "python -m examples.run_examples"
 notebook = "marimo edit examples/lesson.py"
 notebook-export = "marimo export html examples/lesson.py -o output/lesson.html"

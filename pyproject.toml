@@ -45,6 +45,12 @@ extend-exclude = ["examples/__marimo__"]
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I"]
 
+# Point Pyright-based editors at the Pixi environment that `pixi run typecheck`
+# uses, so their errors match the command line.
+[tool.pyright]
+venvPath = ".pixi/envs"
+venv = "default"
+
 [tool.marimo.runtime]
 # Each lesson viewer embeds plotly.js, and Marimo's iframe encoding roughly
 # doubles it to about 12 MB, which exceeds Marimo's 8 MB default.
