@@ -10,7 +10,6 @@ from __future__ import annotations
 import math
 from collections.abc import Sequence
 from dataclasses import dataclass
-from numbers import Real
 
 from flowsim.validation import integer, number
 
@@ -55,6 +54,25 @@ class OrderUpTo:
 
 
 def moving_average(*, window: int) -> MovingAverage:
+    """Forecast one period's demand as the mean of the last window observations.
+
+    Before window periods have been observed, the mean uses every observation
+    so far. Pass the result to order_up_to as forecast.
+
+    Parameters
+    ----------
+    window : int
+        Number of most recent review periods averaged, at least 1.
+
+    Returns
+    -------
+    MovingAverage
+        An immutable forecast definition.
+
+    Example
+    -------
+    >>> forecast = flowsim.moving_average(window=4)
+    """
     return MovingAverage(
         integer(
             value=window,
@@ -67,14 +85,42 @@ def moving_average(*, window: int) -> MovingAverage:
 def order_up_to(
     *,
     forecast: MovingAverage,
-    safety_factor: Real,
-    cover: Real | None = None,
+    safety_factor: float,
+    cover: float | None = None,
 ) -> OrderUpTo:
     """Define an order-up-to policy.
 
-    cover is the number of periods of forecast demand the target covers. Leave
-    it out for a constant lead time, where cover is lead_time / period, and give
-    it for a sampled lead time, whose mean FlowSim does not estimate.
+    At each review, a stock point orders the shortfall of its inventory
+    position (on hand plus on order minus backorders) below the target, never a
+    negative quantity. The target is cover times the forecast plus safety
+    stock. Safety stock is safety_factor * sqrt(cover) times the sample
+    standard deviation of the demands in the forecast window, and it is zero
+    until that window is full.
+
+    Parameters
+    ----------
+    forecast : MovingAverage
+        The demand forecast, from flowsim.moving_average.
+    safety_factor : float
+        Number of standard deviations of safety stock, at least 0. A positive
+        value requires a moving-average window of at least 2.
+    cover : float, optional
+        Periods of forecast demand the target covers, greater than 0. Leave it
+        out for a constant lead time, where cover is lead_time / period. Give
+        it for a sampled lead time (whose mean FlowSim does not estimate) or
+        for a stock point that produces at stations (lead_time=None).
+
+    Returns
+    -------
+    OrderUpTo
+        An immutable policy to pass to Model.stock_point as policy.
+
+    Example
+    -------
+    >>> policy = flowsim.order_up_to(
+    ...     forecast=flowsim.moving_average(window=4),
+    ...     safety_factor=1.0,
+    ... )
     """
     if not isinstance(forecast, MovingAverage):
         raise ValueError("forecast must come from flowsim.moving_average.")

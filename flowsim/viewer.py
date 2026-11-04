@@ -34,7 +34,22 @@ class Viewer:
         return self._document
 
     def save(self, path: str | Path) -> Path:
-        """Write the page to a file, creating its folder, and return the path."""
+        """Write the page to a file, creating its folder, and return the path.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path
+            File to write. Its folder is created if needed.
+
+        Returns
+        -------
+        pathlib.Path
+            The file written.
+
+        Example
+        -------
+        >>> viewer.save("output/viewer.html")
+        """
         destination = Path(path)
         destination.parent.mkdir(
             parents=True,
@@ -52,6 +67,15 @@ class Viewer:
 
         The page is written to its saved path, or to a new temporary file when
         it has not been saved.
+
+        Returns
+        -------
+        pathlib.Path
+            The file shown.
+
+        Example
+        -------
+        >>> viewer.open()
         """
         if self._path is None:
             with tempfile.NamedTemporaryFile(

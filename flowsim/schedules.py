@@ -23,9 +23,19 @@ def validate_schedule(
         raise ValueError(f"{label} must have at least one time and value pair.")
     result = []
     prior = -1.0
-    for pair in points:
-        if len(pair) != 2:
-            raise ValueError(f"Each {label} entry needs a time and a value.")
+    shape = "(start time, level)" if counts else "(start time, rate)"
+    example = "staffing=[(0, 2), (120, 3)]" if counts else "rates=[(0, 10), (120, 20)]"
+    for index, pair in enumerate(points):
+        is_pair = (
+            isinstance(pair, (Sequence, np.ndarray))
+            and not isinstance(pair, (str, bytes))
+            and len(pair) == 2
+        )
+        if not is_pair:
+            raise ValueError(
+                f"{label} entry {index} must be a {shape} pair, e.g. {example}, "
+                f"not {pair!r}."
+            )
         time = number(pair[0], f"{label} change time")
         if time <= prior:
             raise ValueError(f"{label} change times must increase strictly.")

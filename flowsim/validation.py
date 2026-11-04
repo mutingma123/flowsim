@@ -13,7 +13,7 @@ from numbers import Integral, Real
 import numpy as np
 
 Sampler = Callable[[np.random.Generator], float]
-Duration = Real | Sampler
+Duration = float | Sampler
 
 
 def number(value: object, label: str, *, positive: bool = False) -> float:

@@ -150,19 +150,54 @@ class Fit(Distribution):
 
     @property
     def mean(self) -> float:
+        """Return the fitted distribution's mean, in the data's units.
+
+        Example
+        -------
+        >>> fit.mean
+        """
         return self.distribution.mean
 
     @property
     def sd(self) -> float:
+        """Return the fitted distribution's standard deviation, in the data's units.
+
+        Example
+        -------
+        >>> fit.sd
+        """
         return self.distribution.sd
 
     def __call__(self, rng):
         return self.distribution(rng)
 
     def describe(self) -> str:
+        """Return one plain sentence describing the fitted distribution.
+
+        Returns
+        -------
+        str
+            The fitted distribution's description.
+
+        Example
+        -------
+        >>> fit.describe()
+        """
         return self.distribution.describe()
 
     def spec(self) -> dict:
+        """Return the fitted distribution's constructor name and arguments.
+
+        Returns
+        -------
+        dict
+            The key "name" and one key per constructor argument, at full
+            precision.
+
+        Example
+        -------
+        >>> fit.spec()
+        """
         return self.distribution.spec()
 
     def __repr__(self) -> str:
@@ -549,9 +584,17 @@ def fit_all(
         triangular, and beta, which are fitted only when named.
     shifted : bool
         Fit a free location (a minimum time) for exponential, gamma,
-        lognormal, and Weibull, which adds one parameter to each.
+        lognormal, and Weibull, which adds one parameter to each. The default
+        is False, and it cannot combine with discrete=True.
     discrete : bool
-        Fit Poisson and negative binomial counts instead of durations.
+        Fit Poisson and negative binomial counts instead of durations. The
+        default is False.
+
+    Returns
+    -------
+    Fits
+        The fitted families ranked by AIC, with best, pick, table, failed, and
+        plot.
 
     Example
     -------
@@ -607,6 +650,22 @@ def best_fit(
     This is ``fit_all(data, families, shifted=shifted).best``: the
     lowest-AIC fit whose chance of a negative draw is at most 1e-6. Use
     ``fit_all`` to see every candidate and why some failed.
+
+    Parameters
+    ----------
+    data : sequence of float
+        At least two observed durations, each finite and at least zero.
+    families : sequence of str, optional
+        Families to fit. Defaults to ``FAMILIES``. ``ALL_FAMILIES`` adds
+        uniform, triangular, and beta, which are fitted only when named.
+    shifted : bool
+        Fit a free location (a minimum time) for exponential, gamma,
+        lognormal, and Weibull. The default is False.
+
+    Returns
+    -------
+    Fit
+        The best fit, which is callable as a sampler.
 
     Example
     -------

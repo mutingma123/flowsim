@@ -23,12 +23,49 @@ from flowsim.results import (
     Experiment,
     Settings,
     _run_settings,
+    display_html,
+    display_text,
+    missing_attribute,
+    moved_settings,
     unknown,
+    window_line,
 )
 from flowsim.viewer import Viewer
 
 
 class Comparison:
+    """Named scenarios run with matched replication seeds.
+
+    flowsim.compare returns a Comparison. Replication k of every scenario uses
+    the same spawned seed, so differences are paired by replication. The first
+    scenario is the baseline unless a method names another.
+
+    Attributes
+    ----------
+    experiments : dict of str to Experiment
+        Each scenario's experiment, in the order given.
+    baseline : str
+        Name of the first scenario, the default reference for differences.
+    settings : Settings
+        The settings every scenario shares. The seed, end time, and capacities
+        are None.
+    summary, stations, stock_points : polars.DataFrame
+        Each scenario's pooled tables stacked, with a scenario column.
+
+    The common next calls are intervals, differences, plot, viewer, and export.
+
+    Example
+    -------
+    >>> comparison = flowsim.compare(
+    ...     scenarios={"One desk": one, "Two desks": two},
+    ...     duration=480,
+    ... )
+    >>> comparison.differences("mean_total_wait")
+    """
+
+    experiments: dict[str, Experiment]
+    baseline: str
+
     def __init__(self, experiments: dict[str, Experiment]):
         if len(experiments) < 2:
             raise ValueError("A comparison needs at least two experiments.")
@@ -43,6 +80,39 @@ class Comparison:
                 "Compared scenarios need the same duration, warm-up, drain rule, "
                 "and time unit."
             )
+
+    def __getattr__(self, name: str) -> object:
+        if name.startswith("_"):
+            raise AttributeError(
+                f"{type(self).__name__!r} object has no attribute {name!r}"
+            )
+        hints = moved_settings(
+            owner="comparison",
+            names=["duration", "warmup", "drain", "time_unit"],
+        )
+        raise missing_attribute(self, name, hints)
+
+    def __repr__(self) -> str:
+        return display_text(*self._display())
+
+    def _repr_html_(self) -> str:
+        return display_html(*self._display())
+
+    def _display(self) -> tuple[str, list[tuple[str, str]]]:
+        rows = [
+            (
+                "Scenarios" if index == 0 else "",
+                f"{name}{' (baseline)' if name == self.baseline else ''}: "
+                f"{len(experiment.runs)} replications",
+            )
+            for index, (name, experiment) in enumerate(self.experiments.items())
+        ]
+        rows += [
+            ("Settings", window_line(self.settings)),
+            ("Next", "comparison.intervals(metric), comparison.differences(metric)"),
+            ("", "comparison.plot(), comparison.viewer(), comparison.export(folder)"),
+        ]
+        return f"Comparison: {len(self.experiments)} scenarios", rows
 
     @property
     def settings(self) -> Settings:
@@ -60,6 +130,7 @@ class Comparison:
     # estimates and exports always read the same replication values.
     @property
     def summary(self) -> pl.DataFrame:
+        """Return every scenario's pooled summary table, with a scenario column."""
         return pl.concat(
             [
                 experiment.summary.select(pl.lit(name).alias("scenario"), pl.all())
@@ -69,6 +140,7 @@ class Comparison:
 
     @property
     def stations(self) -> pl.DataFrame:
+        """Return every scenario's pooled stations table, with a scenario column."""
         return pl.concat(
             [
                 experiment.stations.select(pl.lit(name).alias("scenario"), pl.all())
@@ -78,6 +150,7 @@ class Comparison:
 
     @property
     def stock_points(self) -> pl.DataFrame:
+        """Return every scenario's pooled stock_points table, with a scenario column."""
         return pl.concat(
             [
                 experiment.stock_points.select(pl.lit(name).alias("scenario"), pl.all())
@@ -108,6 +181,26 @@ class Comparison:
 
         The rows follow Experiment.intervals within each scenario, so a station
         metric without station= gives one row per station per scenario.
+
+        Parameters
+        ----------
+        metric : str, default 'mean_total_wait'
+            A replication metric name from flowsim.metrics().
+        station : str, optional
+            Station to report, for a station metric.
+        stock_point : str, optional
+            Stock point to report, for a stock-point metric.
+        confidence : float, default 0.95
+            Confidence level of the interval, strictly between 0 and 1.
+
+        Returns
+        -------
+        polars.DataFrame
+            One row per scenario and location with the mean and interval limits.
+
+        Example
+        -------
+        >>> comparison.intervals("utilization", station="Desk")
         """
         return comparison_intervals(
             experiments=self.experiments,
@@ -130,6 +223,29 @@ class Comparison:
 
         A station or stock-point metric without a location gives one row per
         location that the scenario shares with the baseline.
+
+        Parameters
+        ----------
+        metric : str, default 'mean_total_wait'
+            A replication metric name from flowsim.metrics().
+        baseline : str, optional
+            Name of the reference scenario. Without it, the first scenario.
+        station : str, optional
+            Station to report, for a station metric.
+        stock_point : str, optional
+            Stock point to report, for a stock-point metric.
+        confidence : float, default 0.95
+            Confidence level of the interval, strictly between 0 and 1.
+
+        Returns
+        -------
+        polars.DataFrame
+            One row per scenario and location with the mean paired difference
+            (scenario minus baseline) and its interval.
+
+        Example
+        -------
+        >>> comparison.differences("mean_total_wait", baseline="One desk")
         """
         return comparison_differences(
             experiments=self.experiments,
@@ -150,7 +266,33 @@ class Comparison:
         differences: bool = False,
         baseline: str | None = None,
     ) -> go.Figure:
-        """Plot each scenario's interval, or its paired difference from the baseline."""
+        """Plot each scenario's interval, or its paired difference from the baseline.
+
+        Parameters
+        ----------
+        metric : str, default 'mean_total_wait'
+            A replication metric name from flowsim.metrics().
+        station : str, optional
+            Station to plot, for a station metric.
+        stock_point : str, optional
+            Stock point to plot, for a stock-point metric.
+        confidence : float, default 0.95
+            Confidence level of the interval, strictly between 0 and 1.
+        differences : bool, default False
+            Whether to plot paired differences from the baseline instead of each
+            scenario's own interval.
+        baseline : str, optional
+            Reference scenario for differences. Without it, the first scenario.
+
+        Returns
+        -------
+        plotly.graph_objects.Figure
+            The interval figure.
+
+        Example
+        -------
+        >>> comparison.plot("mean_total_wait", differences=True).show()
+        """
         table = (
             self.differences(
                 metric=metric,
@@ -187,6 +329,30 @@ class Comparison:
         """Build an offline page with intervals and paired differences.
 
         The page is saved when a path is given.
+
+        Parameters
+        ----------
+        path : str or pathlib.Path, optional
+            File to save the page to. Without it, nothing is written.
+        metric : str, default 'mean_total_wait'
+            A replication metric name from flowsim.metrics().
+        station : str, optional
+            Station to report, for a station metric.
+        stock_point : str, optional
+            Stock point to report, for a stock-point metric.
+        confidence : float, default 0.95
+            Confidence level of the interval, strictly between 0 and 1.
+        baseline : str, optional
+            Reference scenario for differences. Without it, the first scenario.
+
+        Returns
+        -------
+        Viewer
+            The page.
+
+        Example
+        -------
+        >>> comparison.viewer("output/comparison.html")
         """
         reference = self._reference(baseline)
         request = {
@@ -236,7 +402,32 @@ class Comparison:
         confidence: float = 0.95,
         baseline: str | None = None,
     ) -> Path:
-        """Write pooled run tables, intervals, differences, and metadata."""
+        """Write pooled run tables, intervals, differences, and metadata.
+
+        Parameters
+        ----------
+        directory : str or pathlib.Path
+            Folder to write to. It is created if needed.
+        metric : str, default 'mean_total_wait'
+            A replication metric name from flowsim.metrics().
+        station : str, optional
+            Station to report, for a station metric.
+        stock_point : str, optional
+            Stock point to report, for a stock-point metric.
+        confidence : float, default 0.95
+            Confidence level of the interval, strictly between 0 and 1.
+        baseline : str, optional
+            Reference scenario for differences. Without it, the first scenario.
+
+        Returns
+        -------
+        pathlib.Path
+            The folder.
+
+        Example
+        -------
+        >>> comparison.export("output/comparison")
+        """
         reference = self._reference(baseline)
         request = {
             "metric": metric,
@@ -277,7 +468,41 @@ def compare(
     warmup: float = 0,
     drain: bool = False,
 ) -> Comparison:
-    """Run named scenarios using the same independent replication seeds."""
+    """Run named scenarios using the same independent replication seeds.
+
+    Each scenario runs Model.experiment with the same duration, replications,
+    seed, warmup, and drain, so replication k uses the same seed in every
+    scenario. The scenarios must declare the same time unit, and the first is
+    the baseline.
+
+    Parameters
+    ----------
+    scenarios : mapping of str to Model
+        At least two named models. Each is validated.
+    duration : float
+        Closing time of each run in model time units, greater than 0.
+    replications : int, default 20
+        Number of replications per scenario, at least 2.
+    seed : int, default 42
+        Seed from which each replication's seed is spawned, at least 0.
+    warmup : float, default 0
+        Initial period excluded from measurement in each run.
+    drain : bool, default False
+        Whether each run continues past duration until no customers remain.
+
+    Returns
+    -------
+    Comparison
+        The scenarios' experiments, with paired differences.
+
+    Example
+    -------
+    >>> comparison = flowsim.compare(
+    ...     scenarios={"One desk": one, "Two desks": two},
+    ...     duration=480,
+    ...     replications=30,
+    ... )
+    """
     if not isinstance(scenarios, Mapping) or len(scenarios) < 2:
         raise ValueError("A comparison needs at least two named models.")
     for name, model in scenarios.items():

@@ -33,7 +33,8 @@ from flowsim.fitting import (
 )
 from flowsim.model import Model, Node
 from flowsim.policies import moving_average, order_up_to
-from flowsim.results import Experiment, Results, explain, metrics
+from flowsim.results import Experiment, Results, Settings, explain, metrics
+from flowsim.viewer import Viewer
 
 __all__ = [
     "ALL_FAMILIES",
@@ -47,6 +48,8 @@ __all__ = [
     "Model",
     "Node",
     "Results",
+    "Settings",
+    "Viewer",
     "best_fit",
     "beta",
     "compare",

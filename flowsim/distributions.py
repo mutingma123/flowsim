@@ -9,6 +9,7 @@ never holds random state.
 
 from __future__ import annotations
 
+import html
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
@@ -73,11 +74,27 @@ class Distribution(ABC):
 
     @abstractmethod
     def describe(self) -> str:
-        """Return one plain sentence describing the distribution."""
+        """Return one plain sentence describing the distribution.
+
+        Returns
+        -------
+        str
+            The sentence, with the parameters in the model's units.
+
+        Example
+        -------
+        >>> flowsim.exponential(mean=4).describe()
+        'Exponential with mean 4: memoryless gaps, as for random arrivals.'
+        """
 
     def __repr__(self) -> str:
         shown = ", ".join(f"{name}={_fmt(getattr(self, name))}" for name in self._names)
         return f"{type(self).__name__}({shown})"
+
+    def _repr_html_(self) -> str:
+        return (
+            f"<code>{html.escape(repr(self))}</code><br>{html.escape(self.describe())}"
+        )
 
     def spec(self) -> dict:
         """Return the constructor name and its arguments at full precision.
@@ -85,6 +102,17 @@ class Distribution(ABC):
         ``getattr(flowsim, spec["name"])(**arguments)`` rebuilds the same
         distribution, where arguments are the other keys, so export metadata
         can record it without rounding.
+
+        Returns
+        -------
+        dict
+            The key "name" (the lowercase constructor name) and one key per
+            constructor argument.
+
+        Example
+        -------
+        >>> flowsim.exponential(mean=4).spec()
+        {'name': 'exponential', 'mean': 4.0}
         """
         arguments = {}
         for field in fields(self):
@@ -119,6 +147,11 @@ def exponential(*, mean: float) -> Exponential:
     ----------
     mean : float
         Mean duration, greater than zero.
+
+    Returns
+    -------
+    Exponential
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -165,6 +198,11 @@ def uniform(*, low: float, high: float) -> Uniform:
         Smallest value, at least zero.
     high : float
         Largest value, greater than low.
+
+    Returns
+    -------
+    Uniform
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -231,6 +269,11 @@ def triangular(*, low: float, mode: float, high: float) -> Triangular:
     high : float
         Largest value, greater than low.
 
+    Returns
+    -------
+    Triangular
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> triangular(low=1, mode=2, high=6)
@@ -288,6 +331,11 @@ def pert(*, low: float, mode: float, high: float) -> Pert:
     high : float
         Largest value, greater than low.
 
+    Returns
+    -------
+    Pert
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> pert(low=1, mode=2, high=6)
@@ -330,6 +378,11 @@ def normal(*, mean: float, sd: float) -> Normal:
         Mean of the distribution.
     sd : float
         Standard deviation, greater than zero.
+
+    Returns
+    -------
+    Normal
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -381,6 +434,11 @@ def lognormal(*, mean: float, sd: float) -> Lognormal:
     sd : float
         Standard deviation of the duration, greater than zero.
 
+    Returns
+    -------
+    Lognormal
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> lognormal(mean=4, sd=2)
@@ -431,6 +489,11 @@ def gamma(*, shape: float, scale: float) -> Gamma:
         Shape, greater than zero.
     scale : float
         Scale, greater than zero.
+
+    Returns
+    -------
+    Gamma
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -485,6 +548,11 @@ def weibull(*, shape: float, scale: float) -> Weibull:
     scale : float
         Scale, greater than zero.
 
+    Returns
+    -------
+    Weibull
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> weibull(shape=1.5, scale=10)
@@ -531,6 +599,11 @@ def erlang(*, k: int, mean: float) -> Erlang:
         Number of stages, an integer of at least 1.
     mean : float
         Mean of the total duration, greater than zero.
+
+    Returns
+    -------
+    Erlang
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -589,6 +662,11 @@ def beta(*, a: float, b: float, low: float = 0, high: float = 1) -> Beta:
     high : float
         Largest value, greater than low (default 1).
 
+    Returns
+    -------
+    Beta
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> beta(a=2, b=5, low=1, high=4)
@@ -646,6 +724,11 @@ def empirical(data: Sequence[float]) -> Empirical:
     data : sequence of float
         Observed durations: at least one value, each finite and at least zero.
 
+    Returns
+    -------
+    Empirical
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> empirical([2.0, 3.5, 4.1]).mean
@@ -699,6 +782,11 @@ def poisson(*, mean: float) -> Poisson:
     ----------
     mean : float
         Mean count, greater than zero.
+
+    Returns
+    -------
+    Poisson
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -764,6 +852,11 @@ def discrete(
     weights : sequence of float, optional
         Relative chances, one per value, each at least zero with a positive
         sum. Equal chances if omitted.
+
+    Returns
+    -------
+    Discrete
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
@@ -861,6 +954,11 @@ def negative_binomial(*, mean: float, sd: float) -> NegativeBinomial:
     sd : float
         Standard deviation of the count, with sd**2 greater than mean.
 
+    Returns
+    -------
+    NegativeBinomial
+        An immutable distribution, callable with a random generator.
+
     Example
     -------
     >>> negative_binomial(mean=20, sd=8)
@@ -928,6 +1026,11 @@ def shifted(distribution: Distribution | dict, *, by: float) -> Shifted:
     by : float
         Amount added to every draw. A negative shift can produce negative
         draws, which stop a run.
+
+    Returns
+    -------
+    Shifted
+        An immutable distribution, callable with a random generator.
 
     Example
     -------
