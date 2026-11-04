@@ -2,6 +2,7 @@
 
 import json
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 
 import polars as pl
@@ -113,7 +114,7 @@ def test_drain_does_not_advance_to_a_future_source_timeout():
         drain=True,
     )
     assert result.customers.height == 1
-    assert result.end_time == 3
+    assert result.settings.end_time == 3
     assert result.summary.to_dicts()[0]["overtime"] == 0
 
 
@@ -128,7 +129,7 @@ def test_empty_arrival_day_has_no_overtime_and_missing_average():
         duration=3,
         drain=True,
     )
-    assert result.end_time == 3
+    assert result.settings.end_time == 3
     assert result.customers.height == 0
     assert result.summary.to_dicts()[0]["mean_flow_time"] is None
     assert result.summary.to_dicts()[0]["mean_wip"] == 0
@@ -179,7 +180,7 @@ def test_drain_metadata_and_state_trace_extend_through_service(tmp_path):
     assert metadata["drain"] is True
     assert result.states.get_column("time").max() == 6
     assert result.stations.to_dicts()[0]["service_completions"] == 1
-    assert len(result.queue_plot().layout.shapes) == 1
+    assert len(result.plot_queue().layout.shapes) == 1
 
 
 def test_deterministic_scenario_differences_have_exact_zero_width():
@@ -221,7 +222,7 @@ def test_paired_interval_uses_replication_differences_not_two_standard_errors():
     two = result.experiments["Two servers"].runs
     differences = []
     for first, second in zip(one, two):
-        assert first.seed == second.seed
+        assert first.settings.seed == second.settings.seed
         assert_frame_equal(
             first.customers.select("arrival_time"),
             second.customers.select("arrival_time"),
@@ -293,7 +294,11 @@ def test_comparison_rejects_missing_duplicate_and_unpaired_replications():
     with pytest.raises(ValueError, match="missing or duplicate"):
         result.intervals()
     run.summary = original
-    second.runs[0].seed += 1
+    first = second.runs[0]
+    first.settings = replace(
+        first.settings,
+        seed=first.settings.seed + 1,
+    )
     with pytest.raises(ValueError, match="identical replication seeds"):
         result.differences()
 
@@ -352,7 +357,7 @@ def test_comparison_exports_run_counts_and_replication_definitions(tmp_path):
     assert metadata["drain"] is True
     assert len(metadata["replication_seeds"]) == 3
     assert metadata["baseline"] == "One"
-    assert "Scenario comparison" in result.viewer()
+    assert "Scenario comparison" in result.viewer().html
 
 
 def test_comparison_page_fills_its_template_once():
@@ -367,7 +372,7 @@ def test_comparison_page_fills_its_template_once():
         replications=3,
         drain=True,
     )
-    page = result.viewer(confidence=0.9)
+    page = result.viewer(confidence=0.9).html
     assert "Intervals show 90% Student t uncertainty" in page
     assert "<th>Mean (minutes)</th>" in page
     assert (
@@ -544,20 +549,25 @@ def test_experiments_reject_runs_of_different_models():
     )
 
 
-def test_experiment_and_comparison_intervals_have_different_defaults():
+def test_experiment_and_comparison_intervals_share_defaults():
     # One server gives waits 0, 1, and 2 in every replication, and two servers
-    # give 0, 0, and 0. An experiment defaults to mean_wait at every station,
-    # and a comparison defaults to the system's mean_total_wait.
+    # give 0, 0, and 0. Both default to the system's mean_total_wait, and a
+    # station metric without station= covers every station.
     trial = deterministic_queue().experiment(
         duration=7,
         replications=3,
     )
-    station = trial.intervals()
-    assert station.select(
-        "station",
+    assert trial.intervals().select(
         "metric",
+        "station",
         "mean",
-    ).rows() == [("Service", "mean_wait", 1.0)]
+    ).rows() == [("mean_total_wait", None, 1.0)]
+    station = trial.intervals("mean_wait")
+    assert station.select(
+        "metric",
+        "station",
+        "mean",
+    ).rows() == [("mean_wait", "Service", 1.0)]
     result = compare(
         scenarios={
             "One": deterministic_queue(),
@@ -577,8 +587,11 @@ def test_experiment_and_comparison_intervals_have_different_defaults():
         ("One", "mean_total_wait", None, 1.0),
         ("Two", "mean_total_wait", None, 0.0),
     ]
-    with pytest.raises(ValueError, match="name a station"):
-        result.intervals(metric="mean_wait")
+    assert result.intervals(metric="mean_wait").select(
+        "scenario",
+        "station",
+        "mean",
+    ).rows() == [("One", "Service", 1.0), ("Two", "Service", 0.0)]
 
 
 def test_experiment_intervals_cover_system_and_named_station_metrics():
@@ -626,7 +639,7 @@ def test_comparison_outputs_accept_a_baseline_and_read_current_tables(tmp_path):
     differences = pl.read_csv(tmp_path / "differences.csv")
     assert differences.get_column("scenario").to_list() == ["One"]
     assert differences.get_column("mean").to_list() == [1]
-    assert "Difference from Two" in result.viewer(baseline="Two")
+    assert "Difference from Two" in result.viewer(baseline="Two").html
     # Tables built for export follow edits to the underlying runs.
     for run in result.experiments["One"].runs:
         run.summary = run.summary.with_columns(pl.lit(99.0).alias("mean_total_wait"))
@@ -650,7 +663,7 @@ def test_comparison_viewer_and_plot_name_the_chosen_station():
         document = result.viewer(
             metric="mean_wait",
             station=chosen,
-        )
+        ).html
         title = f"Mean station waiting time at {chosen}"
         assert title in document
         assert f"Mean station waiting time at {other}" not in document
@@ -673,9 +686,9 @@ def test_comparison_viewer_prints_a_fractional_confidence_level():
         replications=3,
         drain=True,
     )
-    assert "97.5%" in result.viewer(confidence=0.975)
-    assert "95%" in result.viewer(confidence=0.95)
-    assert "90%" in result.viewer(confidence=0.9)
+    assert "97.5%" in result.viewer(confidence=0.975).html
+    assert "95%" in result.viewer(confidence=0.95).html
+    assert "90%" in result.viewer(confidence=0.9).html
 
 
 def test_export_removes_stale_flowsim_files_and_keeps_other_files(tmp_path):

@@ -110,7 +110,7 @@ def test_orders_split_into_jobs_that_return_at_the_next_review():
     assert records["on_order"] == [50, 68, 100, 118]
     # The factory never ships to a supplier or receives from one.
     assert result.shipments.height == 0
-    settings = result.supply["stock_points"]["Factory"]
+    settings = result._supply["stock_points"]["Factory"]
     assert settings["lead_time"] == "production"
     assert settings["batch_size"] == 16
     assert settings["cover"] == 2

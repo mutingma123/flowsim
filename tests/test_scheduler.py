@@ -196,6 +196,6 @@ def test_model_error_after_the_last_event_is_not_raised():
     )
     assert result.failures.get_column("failure_time").to_list() == [1]
     assert result.failures.get_column("repair_end").to_list() == [2]
-    assert result.end_time == 2
+    assert result.settings.end_time == 2
     with pytest.raises(ValueError, match="No second lifetime"):
         breaks_after_first_repair().run(duration=3)

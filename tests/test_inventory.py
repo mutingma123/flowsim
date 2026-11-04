@@ -521,9 +521,14 @@ def test_comparisons_estimate_stock_point_metrics_with_their_own_column(tmp_path
         "Distributor",
         "Factory",
     ]
-    with pytest.raises(ValueError, match="stock-point metric, so name a stock point"):
-        comparison.intervals(metric="bullwhip_ratio")
-    with pytest.raises(ValueError, match="Choose a stock-point metric"):
+    # Without stock_point=, each scenario reports every stock point.
+    every = comparison.intervals(metric="bullwhip_ratio")
+    assert every.select("scenario", "stock_point").rows() == [
+        (scenario, stage)
+        for scenario in ["Orders", "Shared demand"]
+        for stage in ["Retailer", "Wholesaler", "Distributor", "Factory"]
+    ]
+    with pytest.raises(ValueError, match="station metric, so it takes no stock_point="):
         comparison.intervals(
             metric="mean_wait",
             stock_point="Factory",
@@ -539,7 +544,7 @@ def test_comparisons_estimate_stock_point_metrics_with_their_own_column(tmp_path
     html = comparison.viewer(
         metric="bullwhip_ratio",
         stock_point="Factory",
-    )
+    ).html
     assert "Order variance / demand variance at Factory" in html
 
 
@@ -561,7 +566,7 @@ def test_supply_run_exports_its_tables_and_settings(tmp_path):
     assert metadata["supply"]["stock_points"]["Retailer"]["lead_time"] == 2.0
     assert metadata["supply"]["demand"] == "<function>"
     assert metadata["supply"]["reconstructible"] is False
-    html = result.viewer(tmp_path / "viewer.html")
+    html = result.viewer(tmp_path / "viewer.html").html
     assert "FlowSim supply chain" in html
     assert (tmp_path / "viewer.html").exists()
 

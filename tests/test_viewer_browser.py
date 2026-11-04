@@ -183,6 +183,25 @@ def test_scenario_report_renders_intervals_offline(tmp_path, offline_page):
     ) == [-1]
 
 
+def test_experiment_report_renders_one_metric_offline(tmp_path, offline_page):
+    # One server gives a mean station wait of 1 in every replication.
+    experiment = deterministic_queue().experiment(
+        duration=7,
+        replications=3,
+    )
+    viewer = tmp_path / "experiment.html"
+    experiment.viewer(
+        viewer,
+        metric="mean_wait",
+    )
+    page = offline_page(viewer)
+    page.wait_for_function("document.querySelectorAll('.axis-note').length === 1")
+    assert page.locator(".js-plotly-plot").count() == 1
+    assert page.locator("table tbody tr").count() == 1
+    assert page.evaluate("document.getElementById('scenario-means').data[0].x") == [1]
+    assert page.evaluate("document.getElementById('scenario-differences')") is None
+
+
 def test_scenario_report_moves_axis_titles_below_narrow_charts(tmp_path, offline_page):
     comparison = compare(
         scenarios={

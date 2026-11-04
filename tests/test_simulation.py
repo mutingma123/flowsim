@@ -128,23 +128,24 @@ def test_fcfs_timing_and_integrals_against_independent_heap(capacity):
             start = max(visit["arrival_time"], heapq.heappop(free_times))
             end = start + visit["service_time"]
             heapq.heappush(free_times, end)
-            if start < result.duration:
+            if start < result.settings.duration:
                 assert visit["service_start"] == pytest.approx(start)
             else:
                 assert visit["service_start"] is None
-            if end < result.duration:
+            if end < result.settings.duration:
                 assert visit["service_end"] == pytest.approx(end)
             else:
                 assert visit["service_end"] is None
             queue_area += max(
                 0,
-                min(start, result.duration) - max(visit["arrival_time"], result.warmup),
+                min(start, result.settings.duration)
+                - max(visit["arrival_time"], result.settings.warmup),
             )
             busy_area += max(
                 0,
-                min(end, result.duration) - max(start, result.warmup),
+                min(end, result.settings.duration) - max(start, result.settings.warmup),
             )
-        window = result.duration - result.warmup
+        window = result.settings.duration - result.settings.warmup
         assert metrics["mean_queue"] == pytest.approx(queue_area / window)
         assert metrics["utilization"] == pytest.approx(
             busy_area / (metrics["capacity"] * window)
@@ -314,7 +315,7 @@ def test_stations_are_listed_in_definition_order():
     assert result.states.get_column("station").unique(
         maintain_order=True
     ).to_list() == (order)
-    assert list(result.capacities) == order
+    assert list(result.settings.capacities) == order
 
 
 def test_branch_routes_each_customer_to_one_service():
@@ -399,7 +400,7 @@ def test_empty_run_retains_numeric_schemas():
     assert result.summary.to_dicts()[0]["mean_wip"] == 0
     assert result.stations.to_dicts()[0]["mean_wait"] is None
     assert result.stations.to_dicts()[0]["utilization"] == 0
-    assert "No customer with that ID" in result.viewer()
+    assert "No customer with that ID" in result.viewer().html
 
 
 @pytest.mark.parametrize("value", [0, -1, np.nan, np.inf, True, "2", np.array([1])])
@@ -568,9 +569,13 @@ def test_replication_intervals_use_run_means():
         replications=5,
         seed=42,
     )
-    assert len({run.seed for run in trial.runs}) == 5
+    assert len({run.settings.seed for run in trial.runs}) == 5
     assert_frame_equal(trial.stations, repeated.stations)
-    interval = trial.intervals().filter(pl.col("station") == "Service").to_dicts()[0]
+    interval = (
+        trial.intervals("mean_wait")
+        .filter(pl.col("station") == "Service")
+        .to_dicts()[0]
+    )
     means = (
         trial.stations.filter(pl.col("station") == "Service")
         .get_column("mean_wait")
@@ -590,33 +595,26 @@ def test_replications_report_missing_estimates():
         replications=3,
         warmup=0.05,
     )
-    interval = trial.intervals().to_dicts()[0]
+    interval = trial.intervals("mean_wait").to_dicts()[0]
     assert interval["observed_runs"] == 0
     assert interval["mean"] is interval["lower"] is interval["upper"] is None
 
 
-def test_station_intervals_without_stations_keep_their_columns():
+def test_station_metrics_on_a_model_without_stations_name_a_system_metric():
     model = Model()
     source = model.source(
         name="Customers",
         interarrival=1,
     )
     model.route([source, model.exit])
-    intervals = model.experiment(
+    experiment = model.experiment(
         duration=5,
         replications=2,
-    ).intervals("mean_wait")
-    assert intervals.height == 0
-    assert intervals.schema == {
-        "station": pl.String,
-        "metric": pl.String,
-        "runs": pl.Int64,
-        "observed_runs": pl.Int64,
-        "mean": pl.Float64,
-        "lower": pl.Float64,
-        "upper": pl.Float64,
-        "confidence": pl.Float64,
-    }
+    )
+    with pytest.raises(ValueError, match="no stations.*metric='mean_total_wait'"):
+        experiment.intervals("mean_wait")
+    # Customers arrive at 1, 2, 3, and 4 and leave at once, so none waits.
+    assert experiment.intervals().get_column("mean").to_list() == [0]
 
 
 def test_viewer_escapes_model_text_and_plots_are_not_notebook_objects():
@@ -634,13 +632,13 @@ def test_viewer_escapes_model_text_and_plots_are_not_notebook_objects():
     )
     model.route([source, service, model.exit])
     result = model.run(duration=3)
-    viewer = result.viewer()
+    viewer = result.viewer().html
     assert name not in viewer
     assert "\\u003c/script>" in viewer
-    assert len(result.queue_plot().data) == 2
-    assert len(result.customer_plot(1).data) == 5
+    assert len(result.plot_queue().data) == 2
+    assert len(result.plot_customer(1).data) == 5
     with pytest.raises(ValueError, match="does not exist"):
-        result.customer_plot(99)
+        result.plot_customer(99)
 
 
 def test_customer_timeline_spans_feed_the_plot_and_the_viewer():
@@ -679,7 +677,7 @@ def test_customer_timeline_spans_feed_the_plot_and_the_viewer():
         (3, "Outside", "Outside", 2, 6),
         (4, "Outside", "Outside", 3, 7),
     ]
-    figure = result.customer_plot(2)
+    figure = result.plot_customer(2)
     assert [
         (trace.name, list(trace.y), list(trace.base), list(trace.x))
         for trace in figure.data
@@ -690,7 +688,7 @@ def test_customer_timeline_spans_feed_the_plot_and_the_viewer():
         ("Blocked", [], [], []),
         ("Outside", ["Outside"], [1], [2]),
     ]
-    viewer = result.viewer()
+    viewer = result.viewer().html
     start = viewer.index('<script id="result-data" type="application/json">')
     payload = json.loads(
         viewer[viewer.index(">", start) + 1 : viewer.index("</script>", start)]
@@ -707,9 +705,9 @@ def test_station_menus_select_traces_by_station_meta():
         seed=1,
     )
     expected = {
-        "queue_plot": [False, False, True, True],
-        "wait_plot": [False, True],
-        "resource_plot": [False] * 6 + [True] * 6,
+        "plot_queue": [False, False, True, True],
+        "plot_wait": [False, True],
+        "plot_resources": [False] * 6 + [True] * 6,
     }
     for method, visible in expected.items():
         figure = getattr(result, method)()
@@ -1237,8 +1235,9 @@ def test_only_the_example_tests_import_examples():
 
 
 def test_imports_sit_at_module_level_except_the_plot_methods():
-    # results.py and plots.py import each other, so Results imports its plot
-    # functions when a plot method runs. No other function imports a module.
+    # plots.py and reporting.py import results.py, so Results imports its plot
+    # functions and Experiment its reporting functions when a method runs. No
+    # other function imports a module.
     package = Path(flowsim.__file__).parent
     local = []
     for path in sorted(package.glob("*.py")):
@@ -1250,7 +1249,10 @@ def test_imports_sit_at_module_level_except_the_plot_methods():
                         local.append((path.name, node.module))
                     elif isinstance(node, ast.Import):
                         local.extend((path.name, alias.name) for alias in node.names)
-    assert local == [("results.py", "flowsim.plots")] * 8
+    assert set(local) == {
+        ("results.py", "flowsim.plots"),
+        ("results.py", "flowsim.reporting"),
+    }
     tree = ast.parse((package / "validation.py").read_text(encoding="utf-8"))
     imported = [
         node.module if isinstance(node, ast.ImportFrom) else alias.name
@@ -1277,7 +1279,7 @@ def test_a_station_without_an_onward_route_names_the_station():
         model.run(duration=5)
 
 
-@pytest.mark.parametrize("plot_name", ["queue_plot", "resource_plot"])
+@pytest.mark.parametrize("plot_name", ["plot_queue", "plot_resources"])
 def test_queue_and_resource_plots_mark_the_warmup(plot_name):
     marked = getattr(service_network().run(duration=30, warmup=5), plot_name)()
     lines = [shape for shape in marked.layout.shapes if shape.type == "line"]

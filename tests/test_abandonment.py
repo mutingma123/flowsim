@@ -81,7 +81,7 @@ def test_a_customer_leaves_when_patience_runs_out_and_service_wins_ties():
     assert result.stations.get_column("wait_observations").to_list() == [2]
     # Presence is [0, 5], [1, 4], and [2, 10], i.e., 16 over a window of 20.
     assert summary["mean_wip"] == pytest.approx(0.8)
-    assert result.definitions["Desk"]["abandon_from"] == "waiting"
+    assert result._definitions["Desk"]["abandon_from"] == "waiting"
 
 
 def test_abandonment_counts_by_its_own_time_and_the_rate_by_arrival():
@@ -269,7 +269,7 @@ def test_a_drained_station_without_staff_finishes_once_waiting_customers_leave()
         duration=3,
         drain=True,
     )
-    assert result.end_time == 6
+    assert result.settings.end_time == 6
     summary = result.summary.to_dicts()[0]
     assert summary["completed"] == 2
     assert summary["abandoned"] == 1
@@ -406,8 +406,8 @@ def test_drained_run_with_abandonment_ends_with_nobody_remaining():
         replications=2,
         drain=True,
     )
-    assert "served to completion" not in comparison.viewer()
-    assert "completed service or abandoned" in comparison.viewer()
+    assert "served to completion" not in comparison.viewer().html
+    assert "completed service or abandoned" in comparison.viewer().html
 
 
 def test_drained_run_with_rejection_ends_with_nobody_remaining():

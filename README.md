@@ -287,21 +287,23 @@ A run returns Polars DataFrames and figure methods. The viewer has linked
 station selection for queue histories and wait distributions, zoom and hover
 controls, utilization, a customer timeline, paginated customer records, status
 filtering, and CSV downloads. It reports unfinished customers alongside
-completed-customer averages. `results.viewer()` returns the complete HTML
-string, and `results.viewer("output/viewer.html")` also saves it. The Marimo
-lesson displays that string in an iframe.
+completed-customer averages. `results.viewer()` returns a viewer that a
+notebook displays in an isolated frame, and `results.viewer("output/viewer.html")`
+also saves it. In a script, its `open()` method shows the page in a browser, and
+its `html` attribute holds the document, which the Marimo lesson displays in an
+iframe.
 
 Individual Plotly figures also work in scripts and notebooks:
 
 ```python
 model.diagram().show()
-results.queue_plot().show()
-results.wait_plot().show()
-results.utilization_plot().show()
-results.customer_plot(1).show()
+results.plot_queue().show()
+results.plot_wait().show()
+results.plot_utilization().show()
+results.plot_customer(1).show()
 ```
 
-`results.resource_plot()` draws each station's scheduled, available,
+`results.plot_resources()` draws each station's scheduled, available,
 processing, blocked, paused, and down servers over time. The viewer includes
 it when a model uses staffing schedules, finite buffers, or failures (see
 Model features).
@@ -792,8 +794,8 @@ supply_run = chain.run(
     warmup=20,
 )
 print(supply_run.stock_points)
-supply_run.orders_plot().show()
-supply_run.inventory_plot().show()
+supply_run.plot_orders().show()
+supply_run.plot_inventory().show()
 supply_run.viewer("output/supply-chain.html")
 ```
 
@@ -1106,11 +1108,11 @@ subtracts the baseline scenario (the first scenario unless `baseline=` names
 another) within each matched replication, then estimates a Student t interval
 across those paired differences. A missing value excludes that pair and reduces
 `observed_runs`. `plot`, `viewer`, and `export` accept the same `metric`,
-`station`, `stock_point`, `confidence`, and `baseline` arguments. These defaults differ from
-an experiment's, since `experiment.intervals()` reports `mean_wait` for every
-station, while `comparison.intervals()` reports `mean_total_wait` and needs
-`station=` for a station metric. Compared models must declare
-the same time unit, and a station metric requires that station in every
+`station`, `stock_point`, `confidence`, and `baseline` arguments. An experiment's
+`intervals`, `plot`, `viewer`, and `export` take the same arguments and the same
+default metric, and a station metric without `station=` gives one row per station
+(per scenario in a comparison). Compared models must declare
+the same time unit, and a named station must exist in every
 scenario. Replication identity and seed matching are checked before paired
 differences are calculated. Matching seeds give each node the same draws in
 every scenario that keeps its name, so a source's arrivals match across
@@ -1120,10 +1122,9 @@ because a station draws in the order customers reach it.
 
 The table below lists the metrics that `intervals`, `differences`, and `plot`
 accept. System metrics come from `summary`, and station metrics come from
-`stations` and require a station name in a comparison. Stock-point metrics come
-from `stock_points` and require `stock_point=` in a comparison, and their
-interval tables name the stage in a `stock_point` column rather than `station`.
-An experiment reports a stock-point metric for every stage unless `stock_point=`
+`stations`. Stock-point metrics come from `stock_points`, and their interval
+tables name the stage in a `stock_point` column rather than `station`.
+An experiment or comparison reports a stock-point metric for every stage unless `stock_point=`
 names one.
 
 | Metric | Scope | Meaning |

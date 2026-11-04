@@ -756,10 +756,7 @@ class Model:
             raise ValueError(
                 "The model needs at least one arrival source or a supply chain."
             )
-        reachable = set()
-        for source in sources:
-            reachable.add(source.name)
-            reachable.update(nx.descendants(self._graph, source.name))
+        reachable = self._reachable()
         # A reached node with no route out usually means a forgotten exit, which
         # would otherwise surface as an unreachable exit.
         for node in self._nodes.values():
@@ -903,13 +900,55 @@ class Model:
                     )
                 stack.extend(destination for destination, _ in rule)
 
-    def diagram(self) -> Figure:
-        self.validate()
-        if self._supply is not None:
+    def diagram(self, check: bool = False) -> Figure:
+        """Draw the service network's sources, stations, exit, and routes.
+
+        With check=False, an incomplete model still draws. A node that no
+        source reaches and a source or station with no onward route are drawn
+        in red, with the reason on hover. With check=True, the model is
+        validated first, so an incomplete model raises the error that run()
+        would raise.
+        """
+        if not isinstance(check, bool):
+            raise ValueError("check must be True or False.")
+        if check:
+            self.validate()
+        if self._supply is not None or any(
+            node.kind not in NETWORK_KINDS for node in self._nodes.values()
+        ):
             raise ValueError(
                 "diagram draws service networks, and this model has a supply chain."
             )
-        return network_diagram(self)
+        return network_diagram(
+            model=self,
+            problems=self._route_problems(),
+        )
+
+    def _reachable(self) -> set[str]:
+        """Return the sources and every node a source's routes reach."""
+        reachable = set()
+        for node in self._nodes.values():
+            if node.kind == "source":
+                reachable.add(node.name)
+                reachable.update(nx.descendants(self._graph, node.name))
+        return reachable
+
+    def _route_problems(self) -> dict[str, str]:
+        """Name each node whose routes keep the network from running, with why."""
+        reachable = self._reachable()
+        problems = {}
+        for node in self._nodes.values():
+            notes = []
+            if node.kind != "source" and node.name not in reachable:
+                notes.append("No source reaches it.")
+            if node.kind in {"source", "station"} and node.name not in self._routing:
+                notes.append(
+                    "It has no onward route. End its route with model.exit, "
+                    "e.g., model.route([..., station, model.exit])."
+                )
+            if notes:
+                problems[node.name] = " ".join(notes)
+        return problems
 
     def run(
         self,

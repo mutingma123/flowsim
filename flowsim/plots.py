@@ -13,7 +13,7 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.offline import get_plotlyjs
 
-from flowsim.results import METRICS, Phase, Status
+from flowsim.results import METRICS, Phase, Status, unknown
 from flowsim.validation import integer
 
 if TYPE_CHECKING:
@@ -25,6 +25,8 @@ ORANGE = "#D55E00"
 GREEN = "#009E73"
 PURPLE = "#CC79A7"
 GRAY = "#667085"
+# Marks a diagram node that keeps the model from running.
+WARNING = "#C62828"
 
 # Customer timeline activities in legend order, with their bar colors.
 TIMELINE_COLORS = {
@@ -79,18 +81,25 @@ def station_menu(figure: go.Figure, stations: list[str]) -> None:
 def layout_layers(model: Model) -> list[list[str]]:
     """Group nodes into left-to-right layers for the network diagram.
 
-    An acyclic graph uses topological generations. Routes that cycle across
-    customer types have none, so sources come first, each station sits at its
-    fewest steps from a source, and the exit comes last.
+    The exit always sits alone in the last layer. An acyclic graph places the
+    other nodes by topological generations. Routes that cycle across customer
+    types have none, so sources come first and each station sits at its fewest
+    steps from a source. In an incomplete model, a node that no source reaches
+    sits in the first layer, and an exit without routes still comes last.
     """
-    graph = model.graph
-    if nx.is_directed_acyclic_graph(graph):
-        return [list(names) for names in nx.topological_generations(graph)]
-    sources = [node.name for node in model.nodes.values() if node.kind == "source"]
-    steps = nx.multi_source_dijkstra_path_length(graph, sources)
-    last = max(steps[name] for name in graph if name != model.exit.name) + 1
-    steps[model.exit.name] = last
-    return [[name for name in graph if steps[name] == step] for step in range(last + 1)]
+    others = nx.DiGraph(model.graph)
+    others.remove_node(model.exit.name)
+    if nx.is_directed_acyclic_graph(others):
+        layers = [list(names) for names in nx.topological_generations(others)]
+    else:
+        sources = [node.name for node in model.nodes.values() if node.kind == "source"]
+        steps = nx.multi_source_dijkstra_path_length(others, sources) if sources else {}
+        steps = {name: steps.get(name, 0) for name in others}
+        layers = [
+            [name for name in others if steps[name] == step]
+            for step in range(max(steps.values(), default=-1) + 1)
+        ]
+    return [*layers, [model.exit.name]]
 
 
 def edge_label(data: dict) -> str:
@@ -103,7 +112,12 @@ def edge_label(data: dict) -> str:
     )
 
 
-def network_diagram(model: Model) -> go.Figure:
+def network_diagram(model: Model, problems: dict[str, str]) -> go.Figure:
+    """Draw the network's nodes and routes left to right.
+
+    Each node named in problems is drawn in the warning color with its note on
+    hover, and a title explains the marks.
+    """
     graph = model.graph
     positions = {}
     layers = layout_layers(model)
@@ -164,30 +178,58 @@ def network_diagram(model: Model) -> go.Figure:
                 showarrow=False,
                 bgcolor="white",
             )
-    for kind, color in [("source", GREEN), ("station", BLUE), ("exit", ORANGE)]:
-        nodes = [node for node in model.nodes.values() if node.kind == kind]
-        labels = []
-        for node in nodes:
-            text = label(node.name)
-            if kind == "station":
-                suffix = "server" if node.capacity == 1 else "servers"
-                text += f"<br>{node.capacity} {suffix}"
-            labels.append(text)
+
+    def node_label(node) -> str:
+        text = label(node.name)
+        if node.kind == "station":
+            suffix = "server" if node.capacity == 1 else "servers"
+            text += f"<br>{node.capacity} {suffix}"
+        return text
+
+    for kind, color in [
+        ("source", GREEN),
+        ("station", BLUE),
+        ("exit", ORANGE),
+        ("problem", WARNING),
+    ]:
+        # A node with a problem moves from its kind's trace to the warning trace.
+        if kind == "problem":
+            nodes = [node for node in model.nodes.values() if node.name in problems]
+        else:
+            nodes = [
+                node
+                for node in model.nodes.values()
+                if node.kind == kind and node.name not in problems
+            ]
         figure.add_trace(
             go.Scatter(
                 x=[positions[node.name][0] for node in nodes],
                 y=[positions[node.name][1] for node in nodes],
                 mode="markers+text",
-                text=labels,
+                text=[node_label(node) for node in nodes],
+                customdata=[label(problems.get(node.name, "")) for node in nodes],
                 textposition="bottom center",
                 marker={
                     "size": 30,
                     "color": color,
                     "line": {"color": "black", "width": 1},
                 },
-                hovertemplate="%{text}<extra></extra>",
+                hovertemplate=(
+                    "%{text}<br>%{customdata}<extra></extra>"
+                    if kind == "problem"
+                    else "%{text}<extra></extra>"
+                ),
+                meta=kind,
                 showlegend=False,
             )
+        )
+    if problems:
+        figure.update_layout(
+            title={
+                "text": "Red nodes need routes before the model can run. Hover "
+                "over one for the reason.",
+                "font": {"size": 14},
+            },
         )
     style(
         figure=figure,
@@ -209,10 +251,71 @@ def network_diagram(model: Model) -> go.Figure:
     return figure
 
 
-def queue_plot(result: Results) -> go.Figure:
+def require_stations(result: Results) -> None:
+    """Explain that a run without stations has no station plots."""
+    if not result.settings.capacities:
+        if result._supply is not None:
+            raise ValueError(
+                "This run has no stations. plot_inventory() and plot_orders() "
+                "show its stock points."
+            )
+        raise ValueError(
+            "This run has no stations, so it has no station plots. Its summary "
+            "table holds the customer totals, and plot_customer() shows one "
+            "customer's timeline."
+        )
+
+
+def chosen_stations(result: Results, station: str | None) -> list[str]:
+    """Return the stations a station plot draws, every one unless one is named.
+
+    A run without stations draws empty station figures, as the viewer needs,
+    and the public plot methods call require_stations first.
+    """
+    names = list(result.settings.capacities)
+    if station is None:
+        return names
+    require_stations(result)
+    if station not in names:
+        raise unknown(
+            kind="station",
+            name=station,
+            choices=names,
+            intro=f"Station {station!r} is not in this run.",
+        )
+    return [station]
+
+
+def chosen_stock_points(result: Results, stock_point: str | None) -> list[str]:
+    """Return the stock points a plot draws, every one unless one is named."""
+    names = stock_point_names(result)
+    if not names:
+        raise ValueError(
+            "This run has no stock points. plot_queue(), plot_wait(), "
+            "plot_utilization(), and plot_resources() show its stations."
+        )
+    if stock_point is None:
+        return names
+    if stock_point not in names:
+        raise unknown(
+            kind="stock point",
+            name=stock_point,
+            choices=names,
+            intro=f"Stock point {stock_point!r} is not in this run.",
+        )
+    return [stock_point]
+
+
+def plot_queue(result: Results, station: str | None = None) -> go.Figure:
+    """Plot waiting customers and occupied servers over time at each station.
+
+    Without a station, a menu chooses among the stations, and the first is
+    shown. A named station is the only one drawn.
+    """
+    names = chosen_stations(result, station)
     figure = go.Figure()
-    for index, station in enumerate(result.capacities):
-        history = result.states.filter(pl.col("station") == station)
+    for index, place in enumerate(names):
+        history = result.states.filter(pl.col("station") == place)
         for field, color, name in [
             ("waiting", BLUE, "Waiting"),
             ("busy", ORANGE, "Occupied servers"),
@@ -225,24 +328,24 @@ def queue_plot(result: Results) -> go.Figure:
                     mode="lines",
                     line={"shape": "hv", "color": color, "width": 2},
                     visible=index == 0,
-                    meta=station,
-                    hovertemplate=f"%{{x:.2f}} {label(result.time_unit)}"
+                    meta=place,
+                    hovertemplate=f"%{{x:.2f}} {label(result.settings.time_unit)}"
                     "<br>%{y} customers<extra>%{fullData.name}</extra>",
                 )
             )
     station_menu(
         figure=figure,
-        stations=list(result.capacities),
+        stations=names if station is None else [],
     )
     style(
         figure=figure,
-        x_label=f"Simulation time ({result.time_unit})",
+        x_label=f"Simulation time ({result.settings.time_unit})",
         y_label="Customers",
     )
     figure.update_xaxes(rangeslider={"visible": True, "thickness": 0.1})
-    if result.drain:
+    if result.settings.drain:
         figure.add_vline(
-            x=result.duration,
+            x=result.settings.duration,
             line_color=GRAY,
             line_dash="dash",
         )
@@ -250,13 +353,15 @@ def queue_plot(result: Results) -> go.Figure:
     return figure
 
 
-def wait_plot(result: Results) -> go.Figure:
+def plot_wait(result: Results, station: str | None = None) -> go.Figure:
+    """Plot each station's observed waits for station arrivals after warm-up."""
+    names = chosen_stations(result, station)
     figure = go.Figure()
-    for index, station in enumerate(result.capacities):
+    for index, place in enumerate(names):
         waits = (
             result.visits.filter(
-                (pl.col("station") == station)
-                & (pl.col("arrival_time") >= result.warmup)
+                (pl.col("station") == place)
+                & (pl.col("arrival_time") >= result.settings.warmup)
                 & pl.col("wait_time").is_not_null()
             )
             .get_column("wait_time")
@@ -265,30 +370,33 @@ def wait_plot(result: Results) -> go.Figure:
         figure.add_trace(
             go.Histogram(
                 x=waits,
-                name=label(station),
+                name=label(place),
                 visible=index == 0,
-                meta=station,
+                meta=place,
                 marker={"color": BLUE, "line": {"color": "black", "width": 1}},
                 hovertemplate="Wait bin: %{x}<br>Customers: %{y}<extra></extra>",
             )
         )
     station_menu(
         figure=figure,
-        stations=list(result.capacities),
+        stations=names if station is None else [],
     )
     figure.update_layout(showlegend=False)
     return style(
         figure=figure,
-        x_label=f"Waiting time ({result.time_unit})",
+        x_label=f"Waiting time ({result.settings.time_unit})",
         y_label="Customers",
     )
 
 
-def utilization_plot(result: Results) -> go.Figure:
+def plot_utilization(result: Results, station: str | None = None) -> go.Figure:
+    """Plot each station's occupied share of installed capacity, or one station's."""
+    names = chosen_stations(result, station)
+    stations = result.stations.filter(pl.col("station").is_in(names))
     figure = go.Figure(
         go.Scatter(
-            x=result.stations.get_column("utilization").to_list(),
-            y=[label(name) for name in result.stations.get_column("station")],
+            x=stations.get_column("utilization").to_list(),
+            y=[label(name) for name in stations.get_column("station")],
             mode="markers",
             marker={"size": 12, "color": BLUE, "line": {"color": "black", "width": 1}},
             hovertemplate="%{y}<br>Occupied capacity: %{x:.1%}<extra></extra>",
@@ -303,11 +411,13 @@ def utilization_plot(result: Results) -> go.Figure:
         range=[0, 1.05],
         tickformat=".0%",
     )
-    figure.update_layout(height=max(220, 150 + 40 * len(result.capacities)))
+    figure.update_layout(height=max(220, 150 + 40 * len(names)))
     return figure
 
 
-def resource_plot(result: Results) -> go.Figure:
+def plot_resources(result: Results, station: str | None = None) -> go.Figure:
+    """Plot each station's processing, blocked, paused, down, and staffed servers."""
+    names = chosen_stations(result, station)
     figure = go.Figure()
     fields = [
         ("processing", ORANGE, "Processing"),
@@ -317,8 +427,8 @@ def resource_plot(result: Results) -> go.Figure:
         ("available", GRAY, "Available"),
         ("scheduled", BLUE, "Scheduled"),
     ]
-    for index, station in enumerate(result.capacities):
-        history = result.states.filter(pl.col("station") == station)
+    for index, place in enumerate(names):
+        history = result.states.filter(pl.col("station") == place)
         for field, color, name in fields:
             figure.add_trace(
                 go.Scatter(
@@ -335,25 +445,25 @@ def resource_plot(result: Results) -> go.Figure:
                         else "solid",
                     },
                     visible=index == 0,
-                    meta=station,
+                    meta=place,
                 )
             )
     station_menu(
         figure=figure,
-        stations=list(result.capacities),
+        stations=names if station is None else [],
     )
     style(
         figure=figure,
-        x_label=f"Simulation time ({result.time_unit})",
+        x_label=f"Simulation time ({result.settings.time_unit})",
         y_label="Servers",
     )
     figure.update_layout(
         legend={"orientation": "v", "x": 1.02, "y": 1},
         margin={"l": 85, "r": 175, "t": 60, "b": 70},
     )
-    if result.drain:
+    if result.settings.drain:
         figure.add_vline(
-            x=result.duration,
+            x=result.settings.duration,
             line_color=GRAY,
             line_dash="dash",
         )
@@ -407,11 +517,11 @@ def timeline_spans(result: Results) -> pl.DataFrame:
         pl.coalesce("admission_time", "abandon_time").alias("end"),
     )
     return pl.concat([waiting, *activities, outside]).with_columns(
-        pl.col("end").fill_null(result.end_time),
+        pl.col("end").fill_null(result.settings.end_time),
     )
 
 
-def customer_plot(result: Results, customer_id: int) -> go.Figure:
+def plot_customer(result: Results, customer_id: int) -> go.Figure:
     identifier = integer(customer_id, "Customer ID")
     if result.customers.filter(pl.col("customer_id") == identifier).is_empty():
         raise ValueError(f"Customer {identifier} does not exist in this run.")
@@ -435,7 +545,7 @@ def customer_plot(result: Results, customer_id: int) -> go.Figure:
         )
     style(
         figure=figure,
-        x_label=f"Simulation time ({result.time_unit})",
+        x_label=f"Simulation time ({result.settings.time_unit})",
         y_label="Station",
     )
     figure.update_layout(barmode="overlay")
@@ -445,17 +555,17 @@ def customer_plot(result: Results, customer_id: int) -> go.Figure:
 
 def viewer_html(result: Results) -> str:
     figures = {
-        "queues": json.loads(result.queue_plot().to_json()),
-        "waits": json.loads(result.wait_plot().to_json()),
-        "utilization": json.loads(result.utilization_plot().to_json()),
+        "queues": json.loads(plot_queue(result).to_json()),
+        "waits": json.loads(plot_wait(result).to_json()),
+        "utilization": json.loads(plot_utilization(result).to_json()),
     }
     if any(
         definition["staffing"] is not None
         or definition["buffer"] is not None
         or definition["failures_enabled"]
-        for definition in result.definitions.values()
+        for definition in result._definitions.values()
     ):
-        figures["resources"] = json.loads(result.resource_plot().to_json())
+        figures["resources"] = json.loads(plot_resources(result).to_json())
     payload = {
         "figures": figures,
         "customers": result.customers.to_dicts(),
@@ -469,18 +579,18 @@ def viewer_html(result: Results) -> str:
             "customers": result.customers.columns,
             "visits": result.visits.columns,
         },
-        # The viewer draws these bars as given, so it matches customer_plot.
+        # The viewer draws these bars as given, so it matches plot_customer.
         "timeline": timeline_spans(result).to_dicts(),
         "timeline_colors": TIMELINE_COLORS,
         "failures": result.failures.to_dicts(),
         "stations": result.stations.to_dicts(),
         "summary": result.summary.to_dicts()[0],
-        "duration": result.duration,
-        "end_time": result.end_time,
-        "drain": result.drain,
-        "warmup": result.warmup,
-        "time_unit": result.time_unit,
-        "seed": result.seed,
+        "duration": result.settings.duration,
+        "end_time": result.settings.end_time,
+        "drain": result.settings.drain,
+        "warmup": result.settings.warmup,
+        "time_unit": result.settings.time_unit,
+        "seed": result.settings.seed,
     }
     # Escape '<' so model labels cannot terminate the embedded JSON script.
     data = json.dumps(payload, allow_nan=False).replace("<", "\\u003c")
@@ -495,33 +605,32 @@ STAGE_COLORS = [BLUE, ORANGE, GREEN, PURPLE, "#E69F00", "#56B4E9"]
 
 
 def stock_point_names(result: Results) -> list[str]:
-    return [] if result.supply is None else result.supply["chain"][1:]
+    return [] if result._supply is None else result._supply["chain"][1:]
 
 
 def warmup_line(figure: go.Figure, result: Results) -> None:
-    if result.warmup > 0:
+    if result.settings.warmup > 0:
         figure.add_vline(
-            x=result.warmup,
+            x=result.settings.warmup,
             line_color=GRAY,
             line_dash="dash",
         )
 
 
-def orders_plot(result: Results) -> go.Figure:
+def plot_orders(result: Results) -> go.Figure:
     """Plot consumer demand and every stage's orders, which shows the bullwhip."""
-    names = stock_point_names(result)
+    names = chosen_stock_points(result, None)
     figure = go.Figure()
-    if names:
-        retailer = result.inventory.filter(pl.col("stock_point") == names[0])
-        figure.add_trace(
-            go.Scatter(
-                x=retailer.get_column("time").to_list(),
-                y=retailer.get_column("demand").to_list(),
-                name=label(result.supply["chain"][0]),
-                mode="lines",
-                line={"color": GRAY, "width": 2, "dash": "dot"},
-            )
+    retailer = result.inventory.filter(pl.col("stock_point") == names[0])
+    figure.add_trace(
+        go.Scatter(
+            x=retailer.get_column("time").to_list(),
+            y=retailer.get_column("demand").to_list(),
+            name=label(result._supply["chain"][0]),
+            mode="lines",
+            line={"color": GRAY, "width": 2, "dash": "dot"},
         )
+    )
     for index, name in enumerate(names):
         rows = result.inventory.filter(pl.col("stock_point") == name)
         figure.add_trace(
@@ -535,14 +644,14 @@ def orders_plot(result: Results) -> go.Figure:
         )
     style(
         figure=figure,
-        x_label=f"Review time ({result.time_unit})",
+        x_label=f"Review time ({result.settings.time_unit})",
         y_label="Units per period",
     )
     warmup_line(figure, result)
     # Startup orders can dwarf the measured weeks, so the initial view scales
     # to the periods after warm-up. Autoscaling restores the full range.
-    measured = result.inventory.filter(pl.col("time") >= result.warmup)
-    if result.warmup > 0 and not measured.is_empty():
+    measured = result.inventory.filter(pl.col("time") >= result.settings.warmup)
+    if result.settings.warmup > 0 and not measured.is_empty():
         top = max(
             measured.get_column("order_quantity").max(),
             measured.get_column("demand").max(),
@@ -551,9 +660,13 @@ def orders_plot(result: Results) -> go.Figure:
     return figure
 
 
-def inventory_plot(result: Results) -> go.Figure:
-    """Plot one stock point's stock, backorders, and orders, with a menu."""
-    names = stock_point_names(result)
+def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure:
+    """Plot a stock point's stock, backorders, and orders over review times.
+
+    Without a stock point, a menu chooses among the stock points, and the
+    first is shown. A named stock point is the only one drawn.
+    """
+    names = chosen_stock_points(result, stock_point)
     figure = go.Figure()
     fields = [
         ("on_hand", BLUE, "On hand", "solid"),
@@ -577,11 +690,11 @@ def inventory_plot(result: Results) -> go.Figure:
             )
     station_menu(
         figure=figure,
-        stations=names,
+        stations=names if stock_point is None else [],
     )
     style(
         figure=figure,
-        x_label=f"Review time ({result.time_unit})",
+        x_label=f"Review time ({result.settings.time_unit})",
         y_label="Units at the end of the period",
     )
     warmup_line(figure, result)
@@ -590,23 +703,23 @@ def inventory_plot(result: Results) -> go.Figure:
 
 def supply_viewer_html(result: Results) -> str:
     figures = {
-        "orders": json.loads(result.orders_plot().to_json()),
-        "inventory": json.loads(result.inventory_plot().to_json()),
+        "orders": json.loads(plot_orders(result).to_json()),
+        "inventory": json.loads(plot_inventory(result).to_json()),
     }
     # A top stage that produces adds its stations, whose customers are jobs.
-    if result.capacities:
-        queues = result.queue_plot()
+    if result.settings.capacities:
+        queues = plot_queue(result)
         queues.update_yaxes(title_text="Jobs")
         queues.update_traces(
-            hovertemplate=f"%{{x:.2f}} {label(result.time_unit)}"
+            hovertemplate=f"%{{x:.2f}} {label(result.settings.time_unit)}"
             "<br>%{y} jobs<extra>%{fullData.name}</extra>"
         )
         figures["queues"] = json.loads(queues.to_json())
-        figures["utilization"] = json.loads(result.utilization_plot().to_json())
+        figures["utilization"] = json.loads(plot_utilization(result).to_json())
     payload = {
         "figures": figures,
-        "chain": result.supply["chain"],
-        "period": result.supply["period"],
+        "chain": result._supply["chain"],
+        "period": result._supply["period"],
         "stock_points": result.stock_points.to_dicts(),
         "inventory": result.inventory.to_dicts(),
         "shipments": result.shipments.to_dicts(),
@@ -622,10 +735,10 @@ def supply_viewer_html(result: Results) -> str:
         "percent_columns": [
             name for name, metric in METRICS.items() if metric.kind == "fraction"
         ],
-        "duration": result.duration,
-        "warmup": result.warmup,
-        "time_unit": result.time_unit,
-        "seed": result.seed,
+        "duration": result.settings.duration,
+        "warmup": result.settings.warmup,
+        "time_unit": result.settings.time_unit,
+        "seed": result.settings.seed,
     }
     # Escape '<' so model labels cannot terminate the embedded JSON script.
     data = json.dumps(payload, allow_nan=False).replace("<", "\\u003c")

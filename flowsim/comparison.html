@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FlowSim scenario comparison</title>
+<title>FlowSim: __HEADING__</title>
 <style>
 body {font-family: system-ui, sans-serif; color: #172b3a; background: #f3f6f8; margin: 0;}
 main {max-width: 1000px; margin: auto; padding: 28px;}
@@ -13,17 +13,14 @@ td:first-child,th:first-child {text-align: left;}
 .table-scroll {overflow-x: auto;}
 .axis-note {margin: 0 0 12px; text-align: center; font: 14px Georgia, serif;}
 </style></head><body><main>
-<h1>Scenario comparison</h1><p>__TEXT__</p>
+<h1>__HEADING__</h1><p>__TEXT__</p>
 <section><h2>__TITLE__</h2>
 <p>Points show means across independent replications.
 Intervals show __CONFIDENCE__ Student t uncertainty across run estimates.</p>
 __MEANS__
-<div class="table-scroll"><table><thead><tr><th>Scenario</th><th>Mean (__UNITS__)</th><th>Lower limit (__UNITS__)</th><th>Upper limit (__UNITS__)</th><th>Observed runs</th></tr></thead>
+<div class="table-scroll"><table><thead><tr>__HEADER__</tr></thead>
 <tbody>__TABLE_ROWS__</tbody></table></div></section>
-<section><h2>Difference from __REFERENCE__</h2>
-<p>Each difference is the scenario value minus its baseline value within the same
-replication. Negative values indicate a smaller metric. The dashed line marks zero.</p>
-__CHANGES__</section>
+__DIFFERENCES__
 <p>The saved report works offline. Intervals describe the selected finite-day statistic.
 They do not establish steady-state performance. Wait and flow averages exclude rejected
 arrivals, which can be compared separately. Raw runs remain available in Python.</p>
@@ -35,6 +32,8 @@ window.addEventListener("load", () => {
   const narrowWidth = 500;
   for (const id of ["scenario-means", "scenario-differences"]) {
     const chart = document.getElementById(id);
+    // A page for one experiment has no differences chart.
+    if (chart === null) continue;
     const title = chart.layout.xaxis.title.text;
     const bottom = chart.layout.margin.b;
     const note = document.createElement("p");

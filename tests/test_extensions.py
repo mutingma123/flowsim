@@ -124,7 +124,7 @@ def test_shift_end_rules_preserve_work_and_waits(policy, starts, ends):
     )
     assert result.visits.get_column("service_start").to_list() == starts
     assert result.visits.get_column("service_end").to_list() == ends
-    assert result.end_time == ends[-1]
+    assert result.settings.end_time == ends[-1]
     processing = result.activities.filter(pl.col("state") == "processing")
     assert sum(row["end"] - row["start"] for row in processing.to_dicts()) == 12
 
@@ -165,7 +165,7 @@ def test_staffing_initially_zero_waits_until_a_server_is_scheduled():
         drain=True,
     )
     assert result.visits.get_column("service_start").to_list() == [5, 8, 11]
-    assert result.end_time == 14
+    assert result.settings.end_time == 14
     metrics = result.stations.to_dicts()[0]
     assert metrics["mean_scheduled_servers"] == 0
     assert metrics["staffed_utilization"] is None
@@ -606,7 +606,7 @@ def test_failure_clocks_differ_during_idle_time(clock, start, end):
         drain=True,
     )
     assert result.visits.get_column("service_start").to_list() == [start]
-    assert result.end_time == end
+    assert result.settings.end_time == end
 
 
 @pytest.mark.parametrize("staffing", [None, [(0, 0), (1, 1)]])
@@ -904,7 +904,7 @@ def test_paused_server_needs_a_later_level_that_covers_it(returning):
         drain=True,
     )
     assert result.visits.get_column("service_end").to_list() == [4, 6]
-    assert result.end_time == 6
+    assert result.settings.end_time == 6
     paused = result.activities.filter(pl.col("state") == "paused")
     assert paused.select(
         "server_id",

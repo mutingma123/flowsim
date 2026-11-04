@@ -51,7 +51,7 @@ def test_worked_exercise_preserves_customer_accounting_and_target_rule():
     assert required == 3
     for row in decision.to_dicts():
         experiment = comparison.experiments[row["scenario"]]
-        assert experiment.runs[0].capacities["Service"] == row["servers"]
+        assert experiment.runs[0].settings.capacities["Service"] == row["servers"]
         runs = experiment.summary
         qualifying = runs.filter(pl.col("overtime") <= OVERTIME_LIMIT).height
         assert row["days_finished_on_time"] == qualifying
@@ -124,7 +124,7 @@ def test_beer_game_example_keeps_its_stages_and_rules():
         seed=2,
         warmup=supply_chain.WARMUP,
     )
-    assert result.supply["chain"] == ["Consumers", *supply_chain.STAGES]
+    assert result._supply["chain"] == ["Consumers", *supply_chain.STAGES]
     assert result.stock_points.get_column("periods").to_list() == [84] * 4
     # Each stage starts with two weeks of mean demand, 200 cases.
     first = result.inventory.filter(pl.col("period") == 0)

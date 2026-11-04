@@ -160,8 +160,8 @@ def test_equal_ranks_match_first_come_first_served_on_a_seeded_run():
     )
     assert plain.visits.height > 150
     assert ranked.visits.equals(plain.visits)
-    assert ranked.definitions["Desk"]["priority"] == {"A": 3, "B": 3}
-    assert plain.definitions["Desk"]["priority"] is None
+    assert ranked._definitions["Desk"]["priority"] == {"A": 3, "B": 3}
+    assert plain._definitions["Desk"]["priority"] is None
     # Ranking A ahead of B shortens A's mean wait on the same arrivals.
     favored = build({"A": 1, "B": 2}).run(
         duration=200,

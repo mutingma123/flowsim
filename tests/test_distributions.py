@@ -264,8 +264,8 @@ def test_export_metadata_records_distributions(tmp_path):
         duration=20,
         seed=1,
     )
-    assert lam.definitions["Desk"]["service_time"] == "<function>"
-    assert lam.definitions["Desk"]["reconstructible"] is False
+    assert lam._definitions["Desk"]["service_time"] == "<function>"
+    assert lam._definitions["Desk"]["reconstructible"] is False
 
 
 @pytest.mark.parametrize(
@@ -354,5 +354,5 @@ def test_a_shift_of_a_custom_distribution_exports_as_a_function(tmp_path):
         duration=20,
         seed=1,
     )
-    assert spec.definitions["Desk"]["service_time"] == "<function>"
-    assert spec.definitions["Desk"]["reconstructible"] is False
+    assert spec._definitions["Desk"]["service_time"] == "<function>"
+    assert spec._definitions["Desk"]["reconstructible"] is False

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import difflib
 import json
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -15,6 +17,7 @@ from scipy.stats import t
 
 from flowsim import __version__
 from flowsim.validation import number
+from flowsim.viewer import Viewer
 
 if TYPE_CHECKING:
     import networkx as nx
@@ -81,7 +84,9 @@ FAILURE_SCHEMA = {
     "repair_time": pl.Float64,
     "repair_end": pl.Float64,
 }
-STATION_SCHEMA = {
+# The stations table's column types. STATION_SCHEMA, below the catalog, puts
+# them in display order.
+_STATION_TYPES = {
     "station": pl.String,
     "capacity": pl.Int64,
     "arrivals": pl.Int64,
@@ -915,6 +920,38 @@ STOCK_POINT_METRICS = [
     name for name, metric in METRICS.items() if metric.scope == "stock_point"
 ]
 
+# Display order of the stations and summary tables: the headline columns come
+# first, then the rest in the order their builders compute them. Order is a
+# display choice, applied as each builder's final select, so reordering never
+# touches a computation.
+STATION_HEADLINE = [
+    "station",
+    "mean_wait",
+    "mean_queue",
+    "utilization",
+    "p95_wait",
+    "max_queue",
+]
+SUMMARY_HEADLINE = [
+    "arrivals",
+    "completed",
+    "mean_total_wait",
+    "mean_flow_time",
+    "throughput",
+    "overtime",
+]
+
+
+def headline_first(columns: list[str], headline: list[str]) -> list[str]:
+    """Order columns with the headline columns first and the rest after them."""
+    return [*headline, *(column for column in columns if column not in headline)]
+
+
+STATION_SCHEMA = {
+    column: _STATION_TYPES[column]
+    for column in headline_first(list(_STATION_TYPES), STATION_HEADLINE)
+}
+
 
 def metric_units(metric: str, time_unit: str) -> str:
     return {
@@ -1435,6 +1472,54 @@ def scope_name(metric: str) -> str:
     return _SCOPE_LABELS[METRICS[metric].scope]
 
 
+class Inapplicable(ValueError):
+    """A metric whose scope the model does not have, e.g., stock points."""
+
+
+# System metrics about when the run stopped, which every model has, unlike the
+# customer counts and averages a supply chain without stations lacks.
+RUN_LEVEL_METRICS = frozenset({"end_time", "overtime"})
+
+
+def inapplicable(
+    metric: str,
+    *,
+    stations: bool,
+    stock_points: bool,
+    supply: bool,
+) -> Inapplicable | None:
+    """Return the error for a metric that this kind of model cannot measure.
+
+    A service network has no stock points. A supply chain without production
+    stations has no stations and no customers, so its system metrics would all
+    be missing or zero. A model without stations has no station metrics.
+    """
+    scope = METRICS[metric].scope
+    # The run's stopping time applies to every model.
+    if metric in RUN_LEVEL_METRICS:
+        return None
+    if scope == "stock_point" and not stock_points:
+        other = ", or a station metric, e.g., metric='mean_wait'," if stations else ""
+        return Inapplicable(
+            f"This model has no stock points, so stock-point metrics such as "
+            f"{metric!r} do not apply. Choose a system metric, e.g., "
+            f"metric='mean_total_wait'{other}."
+        )
+    if scope != "stock_point" and supply and not stations:
+        return Inapplicable(
+            "This supply chain has no production stations, so it has no "
+            f"customers or stations, and {scope_name(metric)} metrics such as "
+            f"{metric!r} do not apply. Choose a stock-point metric, e.g., "
+            "metric='fill_rate'."
+        )
+    if scope == "station" and not stations:
+        return Inapplicable(
+            f"This model has no stations, so station metrics such as {metric!r} "
+            "do not apply. Choose a system metric, e.g., metric='mean_total_wait'."
+        )
+    return None
+
+
 def metrics(scope: str | None = None) -> pl.DataFrame:
     """List the replication metrics that ``intervals`` and ``plot`` accept.
 
@@ -1447,7 +1532,7 @@ def metrics(scope: str | None = None) -> pl.DataFrame:
     -------
     polars.DataFrame
         One row per metric with its name, scope, table, label, units, needs
-        (the argument a comparison requires), window, and meaning. Time
+        (the argument that picks one location), window, and meaning. Time
         metrics list "time unit" because no model is known here.
 
     Example
@@ -1568,7 +1653,8 @@ def write_text(path: str | Path, text: str) -> None:
 
 def _run_settings(run: Results) -> tuple:
     """Return the settings that pooled or compared runs must share."""
-    return (run.duration, run.warmup, run.drain, run.time_unit)
+    settings = run.settings
+    return (settings.duration, settings.warmup, settings.drain, settings.time_unit)
 
 
 # Every file name a FlowSim export can write. An export removes the ones it did
@@ -1627,6 +1713,26 @@ def interval_estimate(values: np.ndarray, confidence: float) -> dict:
     }
 
 
+@dataclass(frozen=True)
+class Settings:
+    """The settings of a run: its window, stopping rule, seed, and capacities.
+
+    end_time is when the run stopped, which is later than duration in a drained
+    run. capacities is a read-only mapping from each station to its servers.
+    An experiment's or comparison's settings hold None for the seed and end
+    time, which differ by run, and a comparison's hold None for capacities,
+    which differ by scenario.
+    """
+
+    duration: float
+    warmup: float
+    drain: bool
+    seed: int | None
+    time_unit: str
+    end_time: float | None
+    capacities: Mapping[str, int] | None
+
+
 class Results:
     def __init__(
         self,
@@ -1657,19 +1763,21 @@ class Results:
         self.failures = _frame(failures, FAILURE_SCHEMA)
         self.inventory = _frame(inventory, INVENTORY_SCHEMA)
         self.shipments = _frame(shipments, SHIPMENT_SCHEMA)
+        self.settings = Settings(
+            duration=duration,
+            warmup=warmup,
+            drain=drain,
+            seed=seed,
+            time_unit=time_unit,
+            end_time=end_time,
+            capacities=MappingProxyType(dict(capacities)),
+        )
         # The chain's order, review period, and stock-point settings, or None
         # for a service network.
-        self.supply = supply
-        self.definitions = definitions
-        self.capacities = capacities.copy()
-        self.duration = duration
-        self.end_time = end_time
-        self.drain = drain
-        self.closing_states = closing_states
-        self.warmup = warmup
-        self.time_unit = time_unit
-        self.seed = seed
-        self.graph = graph.copy()
+        self._supply = supply
+        self._definitions = definitions
+        self._closing_states = closing_states
+        self._graph = graph.copy()
         # Experiment pools only runs whose model definitions match.
         self._definition = definition
         self.stations = self._station_metrics()
@@ -1685,8 +1793,11 @@ class Results:
         """
         width = (
             (
-                pl.col("time").shift(-1).over("station").clip(upper_bound=self.duration)
-                - pl.col("time").clip(lower_bound=self.warmup)
+                pl.col("time")
+                .shift(-1)
+                .over("station")
+                .clip(upper_bound=self.settings.duration)
+                - pl.col("time").clip(lower_bound=self.settings.warmup)
             )
             .clip(lower_bound=0)
             .fill_null(0)
@@ -1715,14 +1826,14 @@ class Results:
 
         def in_window(column: str) -> pl.Expr:
             return pl.col(column).is_between(
-                lower_bound=self.warmup,
-                upper_bound=self.duration,
+                lower_bound=self.settings.warmup,
+                upper_bound=self.settings.duration,
                 closed="left",
             )
 
         # Waits belong to station arrivals at or after warm-up, with no upper
         # bound, so drained runs include arrivals after closing.
-        cohort = pl.col("arrival_time") >= self.warmup
+        cohort = pl.col("arrival_time") >= self.settings.warmup
         waits = pl.col("wait_time").filter(cohort)
         visits = self.visits.group_by("station").agg(
             in_window("arrival_time").sum().alias("arrivals"),
@@ -1736,7 +1847,7 @@ class Results:
                 interpolation="linear",
             ).alias("p95_wait"),
         )
-        closing = _frame(list(self.closing_states.values()), STATE_SCHEMA).select(
+        closing = _frame(list(self._closing_states.values()), STATE_SCHEMA).select(
             "station",
             pl.col("waiting").alias("waiting_at_close"),
             pl.col("busy").alias("occupied_at_close"),
@@ -1776,14 +1887,14 @@ class Results:
         )
 
     def _station_metrics(self) -> pl.DataFrame:
-        window = self.duration - self.warmup
+        window = self.settings.duration - self.settings.warmup
         # Utilization is server*time / (servers*time), dimensionless.
         installed = pl.col("capacity") * window
         stations = (
             pl.DataFrame(
                 data={
-                    "station": list(self.capacities),
-                    "capacity": list(self.capacities.values()),
+                    "station": list(self.settings.capacities),
+                    "capacity": list(self.settings.capacities.values()),
                 },
                 schema={"station": pl.String, "capacity": pl.Int64},
             )
@@ -1819,7 +1930,7 @@ class Results:
 
     def _system_metrics(self) -> pl.DataFrame:
         eligible = self.customers.filter(pl.col("status") != Status.REJECTED)
-        cohort = eligible.filter(pl.col("arrival_time") >= self.warmup)
+        cohort = eligible.filter(pl.col("arrival_time") >= self.settings.warmup)
         finished = cohort.filter(pl.col("status") == Status.COMPLETED)
         completed = eligible.get_column("exit_time").count()
         rejected = self.customers.height - eligible.height
@@ -1827,49 +1938,52 @@ class Results:
         # completed nor remaining, and their waits stay out of the averages.
         abandoned = eligible.get_column("abandon_time").count()
         abandoned_at_close = eligible.filter(
-            pl.col("abandon_time") < self.duration
+            pl.col("abandon_time") < self.settings.duration
         ).height
         cohort_abandoned = cohort.get_column("abandon_time").count()
         measurement_arrivals = self.customers.filter(
-            pl.col("arrival_time") >= self.warmup
+            pl.col("arrival_time") >= self.settings.warmup
         ).height
         exits = self.customers.filter(
-            (pl.col("exit_time") >= self.warmup) & (pl.col("exit_time") < self.duration)
+            (pl.col("exit_time") >= self.settings.warmup)
+            & (pl.col("exit_time") < self.settings.duration)
         ).height
         completed_at_close = self.customers.filter(
-            pl.col("exit_time") < self.duration
+            pl.col("exit_time") < self.settings.duration
         ).height
-        window = self.duration - self.warmup
+        window = self.settings.duration - self.settings.warmup
         # Sum each customer's presence clipped to the observation window.
         # Customer*time / time gives the time-average work in process.
         inside = eligible.filter(pl.col("admission_time").is_not_null())
         presence = inside.select(
             (
                 pl.coalesce("exit_time", "abandon_time")
-                .fill_null(self.duration)
-                .clip(upper_bound=self.duration)
-                - pl.col("admission_time").clip(lower_bound=self.warmup)
+                .fill_null(self.settings.duration)
+                .clip(upper_bound=self.settings.duration)
+                - pl.col("admission_time").clip(lower_bound=self.settings.warmup)
             )
             .clip(lower_bound=0)
             .sum()
             .alias("presence")
         ).item()
-        return pl.DataFrame(
+        summary = pl.DataFrame(
             {
                 "arrivals": [self.customers.height],
                 "admitted": [self.customers.filter(pl.col("admitted")).height],
                 "admitted_at_close": [
-                    inside.filter(pl.col("admission_time") < self.duration).height
+                    inside.filter(
+                        pl.col("admission_time") < self.settings.duration
+                    ).height
                 ],
                 "outside_at_close": [
                     eligible.filter(
                         (
                             pl.col("admission_time").is_null()
-                            | (pl.col("admission_time") >= self.duration)
+                            | (pl.col("admission_time") >= self.settings.duration)
                         )
                         & (
                             pl.col("abandon_time").is_null()
-                            | (pl.col("abandon_time") >= self.duration)
+                            | (pl.col("abandon_time") >= self.settings.duration)
                         )
                     ).height
                 ],
@@ -1882,23 +1996,23 @@ class Results:
                     eligible.height - completed_at_close - abandoned_at_close
                 ],
                 "after_close_completions": [completed - completed_at_close],
-                "end_time": [self.end_time],
-                "overtime": [self.end_time - self.duration],
+                "end_time": [self.settings.end_time],
+                "overtime": [self.settings.end_time - self.settings.duration],
                 "measurement_arrivals": [measurement_arrivals],
                 # A rejection happens at arrival, so both counts use the event's
                 # own time in [warmup, duration), as measurement_completions does.
                 "measurement_rejected": [
                     self.customers.filter(
                         (pl.col("status") == Status.REJECTED)
-                        & (pl.col("arrival_time") >= self.warmup)
+                        & (pl.col("arrival_time") >= self.settings.warmup)
                     ).height
                 ],
                 # Abandonments count by their own time, like completions. The
                 # rate instead follows the customers who arrived after warm-up.
                 "measurement_abandoned": [
                     eligible.filter(
-                        (pl.col("abandon_time") >= self.warmup)
-                        & (pl.col("abandon_time") < self.duration)
+                        (pl.col("abandon_time") >= self.settings.warmup)
+                        & (pl.col("abandon_time") < self.settings.duration)
                     ).height
                 ],
                 "abandonment_rate": [
@@ -1908,8 +2022,8 @@ class Results:
                 ],
                 "measurement_admitted": [
                     inside.filter(
-                        (pl.col("admission_time") >= self.warmup)
-                        & (pl.col("admission_time") < self.duration)
+                        (pl.col("admission_time") >= self.settings.warmup)
+                        & (pl.col("admission_time") < self.settings.duration)
                     ).height
                 ],
                 "cohort_arrivals": [cohort.height],
@@ -1933,6 +2047,7 @@ class Results:
                 "mean_outside_wait": pl.Float64,
             },
         )
+        return summary.select(headline_first(summary.columns, SUMMARY_HEADLINE))
 
     def _stock_point_metrics(self) -> pl.DataFrame:
         """Summarize each stock point over the review periods in [warmup, duration).
@@ -1943,8 +2058,8 @@ class Results:
         the variance of orders received, both with the n - 1 divisor, and is
         missing with fewer than two periods or constant demand.
         """
-        names = [] if self.supply is None else self.supply["chain"][1:]
-        window = self.inventory.filter(pl.col("time") >= self.warmup)
+        names = [] if self._supply is None else self._supply["chain"][1:]
+        window = self.inventory.filter(pl.col("time") >= self.settings.warmup)
         measured = window.group_by("stock_point").agg(
             pl.len().alias("periods"),
             pl.col("demand").mean().alias("mean_demand"),
@@ -1985,51 +2100,151 @@ class Results:
             )
         )
 
+    def report(self) -> pl.DataFrame:
+        """List every replication metric that applies to this run, one per row.
+
+        The columns are scope, location (the station or stock point, null for a
+        system metric), metric, label, value, and units in the run's time unit.
+        Rows follow the catalog: system metrics, then each station's metrics,
+        then each stock point's. A scope that the model lacks has no rows, so a
+        service network lists no stock-point metrics, and a supply chain without
+        production stations lists only its stock-point metrics and the run's
+        end_time and overtime.
+        """
+        stations = list(self.settings.capacities)
+        stock_points = self.stock_points.get_column("stock_point").to_list()
+        rows = []
+        for names, column, table, places in [
+            (SYSTEM_METRICS, None, self.summary, [None]),
+            (STATION_METRICS, "station", self.stations, stations),
+            (STOCK_POINT_METRICS, "stock_point", self.stock_points, stock_points),
+        ]:
+            names = [
+                name
+                for name in names
+                if inapplicable(
+                    name,
+                    stations=bool(stations),
+                    stock_points=bool(stock_points),
+                    supply=self._supply is not None,
+                )
+                is None
+            ]
+            if not names:
+                continue
+            for place in places:
+                values = (
+                    table if place is None else table.filter(pl.col(column) == place)
+                ).row(
+                    0,
+                    named=True,
+                )
+                rows += [
+                    {
+                        "scope": METRICS[name].scope,
+                        "location": place,
+                        "metric": name,
+                        "label": METRICS[name].label,
+                        "value": None if values[name] is None else float(values[name]),
+                        "units": metric_units(name, self.settings.time_unit),
+                    }
+                    for name in names
+                ]
+        return pl.DataFrame(
+            data=rows,
+            schema={
+                "scope": pl.String,
+                "location": pl.String,
+                "metric": pl.String,
+                "label": pl.String,
+                "value": pl.Float64,
+                "units": pl.String,
+            },
+        )
+
     # plots imports METRICS from this module at load time, so each plot
     # method imports its function when called.
-    def queue_plot(self) -> Figure:
-        from flowsim.plots import queue_plot
+    def plot_queue(self, station: str | None = None) -> Figure:
+        """Plot waiting customers and occupied servers over time.
 
-        return queue_plot(self)
+        Without a station, a menu chooses among the stations. A named station
+        is the only one drawn.
+        """
+        from flowsim.plots import plot_queue, require_stations
 
-    def wait_plot(self) -> Figure:
-        from flowsim.plots import wait_plot
+        require_stations(self)
 
-        return wait_plot(self)
+        return plot_queue(self, station=station)
 
-    def utilization_plot(self) -> Figure:
-        from flowsim.plots import utilization_plot
+    def plot_wait(self, station: str | None = None) -> Figure:
+        """Plot the waiting-time histogram of station arrivals after warm-up."""
+        from flowsim.plots import plot_wait, require_stations
 
-        return utilization_plot(self)
+        require_stations(self)
 
-    def resource_plot(self) -> Figure:
-        from flowsim.plots import resource_plot
+        return plot_wait(self, station=station)
 
-        return resource_plot(self)
+    def plot_utilization(self, station: str | None = None) -> Figure:
+        """Plot each station's occupied share of capacity, or one station's."""
+        from flowsim.plots import plot_utilization, require_stations
 
-    def customer_plot(self, customer_id: int) -> Figure:
-        from flowsim.plots import customer_plot
+        require_stations(self)
 
-        return customer_plot(self, customer_id)
+        return plot_utilization(self, station=station)
 
-    def inventory_plot(self) -> Figure:
-        from flowsim.plots import inventory_plot
+    def plot_resources(self, station: str | None = None) -> Figure:
+        """Plot processing, blocked, paused, down, and staffed servers over time."""
+        from flowsim.plots import plot_resources, require_stations
 
-        return inventory_plot(self)
+        require_stations(self)
 
-    def orders_plot(self) -> Figure:
-        from flowsim.plots import orders_plot
+        return plot_resources(self, station=station)
 
-        return orders_plot(self)
+    def plot_customer(self, customer_id: int) -> Figure:
+        """Plot one customer's waiting, service, paused, and blocked time."""
+        from flowsim.plots import plot_customer
 
-    def viewer(self, path: str | Path | None = None) -> str:
-        """Return an offline HTML viewer, optionally saving it to a file."""
+        return plot_customer(self, customer_id)
+
+    def plot_inventory(self, stock_point: str | None = None) -> Figure:
+        """Plot stock on hand, backorders, and orders at each review.
+
+        Without a stock point, a menu chooses among the stock points. A named
+        stock point is the only one drawn.
+        """
+        from flowsim.plots import plot_inventory
+
+        return plot_inventory(self, stock_point=stock_point)
+
+    def plot_orders(self) -> Figure:
+        """Plot consumer demand and every stage's orders, which shows the bullwhip."""
+        from flowsim.plots import plot_orders
+
+        return plot_orders(self)
+
+    def viewer(self, path: str | Path | None = None) -> Viewer:
+        """Build the offline results page, saving it when a path is given.
+
+        A notebook displays the returned Viewer. A script calls its save(path)
+        or open() method.
+        """
         from flowsim.plots import supply_viewer_html, viewer_html
 
-        html = viewer_html(self) if self.supply is None else supply_viewer_html(self)
+        if self._supply is None:
+            page = Viewer(
+                document=viewer_html(self),
+                kind="results page",
+                height=900,
+            )
+        else:
+            page = Viewer(
+                document=supply_viewer_html(self),
+                kind="supply-chain results page",
+                height=900,
+            )
         if path is not None:
-            write_text(path, html)
-        return html
+            page.save(path)
+        return page
 
     def export(self, directory: str | Path) -> Path:
         """Export raw records, metrics, and their measurement definitions."""
@@ -2047,25 +2262,25 @@ class Results:
             "activities",
             "failures",
         ]
-        if self.supply is not None:
+        if self._supply is not None:
             names += ["inventory", "shipments", "stock_points"]
         for name in names:
             getattr(self, name).write_csv(destination / f"{name}.csv")
         metadata = {
-            "time_unit": self.time_unit,
-            "duration": self.duration,
-            "end_time": self.end_time,
-            "drain": self.drain,
-            "warmup": self.warmup,
-            "seed": self.seed,
-            "capacities": self.capacities,
-            "definitions": self.definitions,
+            "time_unit": self.settings.time_unit,
+            "duration": self.settings.duration,
+            "end_time": self.settings.end_time,
+            "drain": self.settings.drain,
+            "warmup": self.settings.warmup,
+            "seed": self.settings.seed,
+            "capacities": dict(self.settings.capacities),
+            "definitions": self._definitions,
             # A typed edge lists each type that may take it, with its probability.
             "routes": [
                 {"from": origin, "to": target, "probability": data["probability"]}
                 if "probability" in data
                 else {"from": origin, "to": target, "types": dict(data["types"])}
-                for origin, target, data in self.graph.edges(data=True)
+                for origin, target, data in self._graph.edges(data=True)
             ],
             "state_window": "[warmup, duration)",
             "wait_cohort": (
@@ -2076,8 +2291,8 @@ class Results:
             "flow_cohort": "System arrivals at or after warmup with observed exits",
             "censoring": "Missing starts and exits remain null, never zero",
         }
-        if self.supply is not None:
-            metadata["supply"] = self.supply
+        if self._supply is not None:
+            metadata["supply"] = self._supply
             metadata["inventory_window"] = (
                 "Review periods at times in [warmup, duration)"
             )
@@ -2099,7 +2314,7 @@ class Experiment:
         runs = list(runs)
         if len(runs) < 2:
             raise ValueError("An experiment needs at least two runs.")
-        if len({run.seed for run in runs}) != len(runs):
+        if len({run.settings.seed for run in runs}) != len(runs):
             raise ValueError(
                 "Replications need distinct seeds. A repeated run is not an "
                 "independent observation."
@@ -2156,105 +2371,153 @@ class Experiment:
             ]
         )
 
+    @property
+    def settings(self) -> Settings:
+        """Return the settings the runs share, with no seed or end time."""
+        return replace(
+            self.runs[0].settings,
+            seed=None,
+            end_time=None,
+        )
+
+    @property
     def stock_point_names(self) -> list[str]:
-        supply = self.runs[0].supply
+        """Return the stock points in chain order, empty for a service network."""
+        supply = self.runs[0]._supply
         return [] if supply is None else supply["chain"][1:]
 
-    def _values(
-        self,
-        metric: str,
-        station: str | None,
-        stock_point: str | None = None,
-    ) -> np.ndarray:
-        """Return one value per replication, in replication order."""
-        if stock_point is not None:
-            if stock_point not in self.stock_point_names():
-                raise unknown(
-                    kind="stock point",
-                    name=stock_point,
-                    choices=self.stock_point_names(),
-                )
-            table = self.stock_points.filter(pl.col("stock_point") == stock_point)
-        elif station is None:
-            table = self.summary
-        else:
-            if station not in self.runs[0].capacities:
-                raise unknown(
-                    kind="station",
-                    name=station,
-                    choices=list(self.runs[0].capacities),
-                )
-            table = self.stations.filter(pl.col("station") == station)
-        table = table.sort("replication")
-        expected = list(range(1, len(self.runs) + 1))
-        if table.get_column("replication").to_list() != expected:
-            raise ValueError("Some replications are missing or duplicated.")
-        return np.asarray(table.get_column(metric).to_numpy(), dtype=float)
-
+    # plots imports METRICS from this module at load time, and reporting imports
+    # this module, so each reporting method imports its function when called.
     def intervals(
         self,
-        metric: str = "mean_wait",
+        metric: str = "mean_total_wait",
         *,
         station: str | None = None,
         stock_point: str | None = None,
         confidence: float = 0.95,
     ) -> pl.DataFrame:
-        """Estimate a metric across runs, reporting missing estimates.
+        """Estimate a metric across runs with Student t intervals.
 
-        A station metric gives one row per station unless a station is named.
-        A system metric gives one row with a null station. A stock-point metric
-        gives one row per stock point unless one is named, in a stock_point
-        column that replaces the station column.
+        A system metric gives one row with a null station. A station metric
+        gives one row per station unless station= names one, and a stock-point
+        metric gives one row per stock point unless stock_point= names one, in
+        a stock_point column that replaces the station column. Missing run
+        values are excluded and counted in observed_runs.
         """
-        level = confidence_level(confidence)
-        if metric not in METRICS:
-            raise metric_error(metric)
-        scope = METRICS[metric].scope
-        if stock_point is not None and scope != "stock_point":
-            raise ValueError(
-                f"{metric!r} is a {scope_name(metric)} metric, so it takes no "
-                "stock_point=."
-            )
-        if scope == "stock_point":
-            if station is not None:
-                raise ValueError(f"{metric!r} is a stock-point metric with no station.")
-            names = self.stock_point_names() if stock_point is None else [stock_point]
-            return interval_frame(
-                rows=[
-                    {
-                        "stock_point": name,
-                        "metric": metric,
-                        "runs": len(self.runs),
-                        **interval_estimate(
-                            self._values(
-                                metric=metric,
-                                station=None,
-                                stock_point=name,
-                            ),
-                            level,
-                        ),
-                        "confidence": level,
-                    }
-                    for name in names
-                ],
-                keys=["stock_point", "metric"],
-            )
-        if scope == "system":
-            if station is not None:
-                raise ValueError(f"{metric!r} is a system metric with no station.")
-            names = [None]
-        else:
-            names = list(self.runs[0].capacities) if station is None else [station]
-        return interval_frame(
-            rows=[
-                {
-                    "station": name,
-                    "metric": metric,
-                    "runs": len(self.runs),
-                    **interval_estimate(self._values(metric, name), level),
-                    "confidence": level,
-                }
-                for name in names
-            ],
-            keys=["station", "metric"],
+        from flowsim.reporting import experiment_intervals
+
+        return experiment_intervals(
+            experiment=self,
+            metric=metric,
+            station=station,
+            stock_point=stock_point,
+            confidence=confidence,
+        )
+
+    def plot(
+        self,
+        metric: str = "mean_total_wait",
+        *,
+        station: str | None = None,
+        stock_point: str | None = None,
+        confidence: float = 0.95,
+    ) -> Figure:
+        """Plot the intervals for a metric, one point per location it covers."""
+        from flowsim.reporting import interval_figure
+
+        return interval_figure(
+            table=self.intervals(
+                metric=metric,
+                station=station,
+                stock_point=stock_point,
+                confidence=confidence,
+            ),
+            metric=metric,
+            time_unit=self.settings.time_unit,
+        )
+
+    def viewer(
+        self,
+        path: str | Path | None = None,
+        *,
+        metric: str = "mean_total_wait",
+        station: str | None = None,
+        stock_point: str | None = None,
+        confidence: float = 0.95,
+    ) -> Viewer:
+        """Build an offline page of one metric's intervals, saved to path if given."""
+        from flowsim.reporting import page, window_text
+
+        settings = self.settings
+        document = page(
+            heading="Replication intervals",
+            text=window_text(
+                metric,
+                duration=settings.duration,
+                warmup=settings.warmup,
+                drain=settings.drain,
+                time_unit=settings.time_unit,
+            ),
+            metric=metric,
+            table=self.intervals(
+                metric=metric,
+                station=station,
+                stock_point=stock_point,
+                confidence=confidence,
+            ),
+            time_unit=settings.time_unit,
+            confidence=confidence,
+            means=self.plot(
+                metric=metric,
+                station=station,
+                stock_point=stock_point,
+                confidence=confidence,
+            ),
+        )
+        viewer = Viewer(
+            document=document,
+            kind="replication page",
+            height=800,
+        )
+        if path is not None:
+            viewer.save(path)
+        return viewer
+
+    def export(
+        self,
+        directory: str | Path,
+        *,
+        metric: str = "mean_total_wait",
+        station: str | None = None,
+        stock_point: str | None = None,
+        confidence: float = 0.95,
+    ) -> Path:
+        """Write the pooled run tables, one metric's intervals, and metadata.
+
+        The folder receives runs.csv (the pooled summary), stations.csv,
+        stock_points.csv for a supply chain, intervals.csv, and metadata.json
+        with the settings, replication seeds, metric, and confidence level.
+        """
+        from flowsim.reporting import export_tables, request_metadata
+
+        intervals = self.intervals(
+            metric=metric,
+            station=station,
+            stock_point=stock_point,
+            confidence=confidence,
+        )
+        return export_tables(
+            directory,
+            summary=self.summary,
+            stations=self.stations,
+            stock_points=self.stock_points if self.stock_point_names else None,
+            intervals=intervals,
+            differences=None,
+            metadata=request_metadata(
+                experiment=self,
+                metric=metric,
+                station=station,
+                stock_point=stock_point,
+                confidence=confidence,
+            ),
         )

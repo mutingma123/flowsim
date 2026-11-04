@@ -136,7 +136,7 @@ def _(mo, results):
 @app.cell
 def _(mo, results):
     mo.iframe(
-        html=results.viewer(),
+        html=results.viewer().html,
         height="2300px",
     )
     return
@@ -350,7 +350,7 @@ def _(extension_model, mo):
 @app.cell
 def _(extension_results, mo):
     mo.iframe(
-        html=extension_results.viewer(),
+        html=extension_results.viewer().html,
         height="3000px",
     )
     return

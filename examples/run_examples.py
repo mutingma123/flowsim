@@ -59,13 +59,15 @@ def main():
             seed=42,
         )
         interval = (
-            trials.intervals()
+            trials.intervals("mean_wait")
             .filter(pl.col("station") == "Service")
             .with_columns(pl.lit(capacity).alias("servers"))
         )
         comparison.append(interval)
         if capacity == 2:
-            trials.intervals().write_csv(output / "replication-intervals.csv")
+            trials.intervals("mean_wait").write_csv(
+                output / "replication-intervals.csv"
+            )
     staffing = pl.concat(comparison)
     staffing.write_csv(output / "staffing-comparison.csv")
     print("\nMean wait at the Service station across 12 replications")

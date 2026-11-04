@@ -219,11 +219,11 @@ def test_comparison_errors_state_the_scope_and_suggest_matches():
         duration=7,
         replications=2,
     )
-    with pytest.raises(
-        ValueError,
-        match="'mean_wait' is a station metric, so name a station, e.g. station='Service'",
-    ):
-        comparison.intervals("mean_wait")
+    with pytest.raises(ValueError, match="Close matches: Service"):
+        comparison.intervals(
+            "mean_wait",
+            station="Servce",
+        )
     with pytest.raises(ValueError, match="mean_wait"):
         comparison.intervals("mean_wiat")
     with pytest.raises(ValueError, match="Close matches: Two"):
