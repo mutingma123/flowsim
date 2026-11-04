@@ -181,6 +181,10 @@ def _type_mix(types: object) -> Mapping[str, float]:
     return MappingProxyType(probabilities)
 
 
+# How far branch probabilities may sum from one. The builder page reads it too.
+BRANCH_SUM_TOLERANCE = 1e-12
+
+
 def _typed_durations(times: Mapping, label: str) -> Mapping[str, Duration]:
     """Check a mapping from customer type to duration, labeled like "Service time"."""
     if not times:
@@ -1008,7 +1012,7 @@ class Model:
             a=sum(probabilities),
             b=1.0,
             rel_tol=0,
-            abs_tol=1e-12,
+            abs_tol=BRANCH_SUM_TOLERANCE,
         ):
             raise ValueError("Branch probabilities must sum to one.")
         choices = tuple(

@@ -78,6 +78,7 @@ serve scripts and terminals, HTML summaries serve notebooks, and
   - [Branches and shared stations](#branches-and-shared-stations)
   - [Durations and distributions](#durations-and-distributions)
   - [Inspecting a model](#inspecting-a-model)
+  - [Drawing a model in the browser](#drawing-a-model-in-the-browser)
   - [Model features](#model-features)
     - [Customer types](#customer-types)
     - [Demand and staffing schedules](#demand-and-staffing-schedules)
@@ -266,6 +267,33 @@ In code, `model.nodes` maps each name to its node in definition order, and
 from each customer type that may take it to its probability, and
 `model.routing` lists each node's destinations by customer type. None of these
 can change the model.
+
+### Drawing a model in the browser
+
+`flowsim.builder()` returns a prototype page for drawing a small service
+network, and `flowsim.builder(path)` also saves it. A notebook displays the page
+in an isolated frame, and a script calls `.open()` to show it in a browser. The
+page works offline. It adds sources, stations, and the exit to a canvas,
+connects them with arrows, and treats a node with two or more outgoing arrows as
+a probabilistic branch whose probabilities must sum to one. A side panel edits
+each node's name, a station's capacity, a source's optional `first_arrival` and
+`limit`, and each duration as a constant or a named distribution with its
+parameters. As the model changes, the page writes a complete script with a copy
+button and a `.py` download, and it saves and loads its own JSON model file.
+
+The page does not edit customer types, schedules, finite buffers, abandonment,
+failures, priorities, or supply chains. Its forms come from the signatures and
+docstrings of the distribution constructors and of `Model.source`,
+`Model.station`, and `Model.run`. The page checks routes, branch probabilities,
+and single values, and `model.run` in the generated script is the final check.
+The generated script is ordinary FlowSim code, so the excluded features are
+added by editing it, and the page does not read edited code back.
+
+```python
+from flowsim import builder
+
+page = builder("output/builder.html")
+```
 
 ### Model features
 

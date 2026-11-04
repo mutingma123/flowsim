@@ -1,0 +1,1200 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FlowSim model builder</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; color: #172b3a; background: #f3f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    main { max-width: 1320px; margin: auto; padding: 24px; }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    h1 .tag { font-size: 14px; font-weight: 600; color: #8a4b00; background: #fdf0dc; border: 1px solid #f0c98a; border-radius: 4px; padding: 2px 7px; vertical-align: middle; }
+    h2 { margin: 0 0 10px; font-size: 18px; }
+    p { line-height: 1.5; margin: 6px 0 12px; }
+    .muted { color: #536575; }
+    section, aside { background: white; border: 1px solid #dce3e8; border-radius: 10px; padding: 16px; min-width: 0; }
+    section { margin-bottom: 16px; }
+    .notice { border-left: 4px solid #0072b2; padding-left: 12px; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: 14px 0; }
+    .toolbar .gap { width: 12px; }
+    select, input, button, .button { font: inherit; font-size: 14px; padding: 6px 10px; border: 1px solid #a9bac7; border-radius: 5px; background: white; color: #172b3a; }
+    input[type="checkbox"] { padding: 0; }
+    button, .button { cursor: pointer; }
+    button:hover, .button:hover { background: #edf3f7; }
+    button:disabled { cursor: default; opacity: 0.45; }
+    label { font-size: 14px; }
+    .toolbar input:not([type]) { width: 90px; }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; margin-bottom: 16px; }
+    .canvas-box { padding: 10px; }
+    #canvas { width: 100%; height: auto; display: block; background: #fbfcfd; border: 1px solid #e4eaef; border-radius: 6px; touch-action: none; user-select: none; }
+    #canvas-status { min-height: 1.5em; margin: 6px 2px 0; color: #b03a2e; font-size: 14px; }
+    .node { cursor: grab; }
+    .node rect.body { stroke-width: 1.5; }
+    .node.source rect.body { fill: #e6f2ea; stroke: #2e7d4f; }
+    .node.station rect.body { fill: #e8f1f8; stroke: #0072b2; }
+    .node.exit rect.body { fill: #eef0f2; stroke: #6b7a86; }
+    .node.selected rect.body { stroke: #d55e00; stroke-width: 3; }
+    .node text { font-size: 13px; fill: #172b3a; pointer-events: none; }
+    .node text.kind { font-size: 10px; fill: #536575; letter-spacing: 0.06em; text-transform: uppercase; }
+    .node text.detail { font-size: 11px; fill: #455966; }
+    .handle { fill: white; stroke: #172b3a; stroke-width: 1.5; cursor: crosshair; }
+    .handle:hover { fill: #d55e00; }
+    .edge { stroke: #455966; stroke-width: 1.8; fill: none; }
+    .edge.selected { stroke: #d55e00; stroke-width: 3; }
+    .edge-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+    .pending { stroke: #d55e00; stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
+    .edge-prob { width: 60px; font-size: 12px; padding: 2px 4px; text-align: center; border-color: #455966; }
+    aside { max-height: 640px; overflow-y: auto; }
+    aside .field { margin: 0 0 12px; }
+    aside .field > label, aside legend { display: block; font-weight: 600; margin-bottom: 4px; font-family: ui-monospace, monospace; font-size: 13px; }
+    aside input:not([type="checkbox"]), aside select { width: 100%; }
+    aside fieldset { border: 1px solid #e4eaef; border-radius: 6px; padding: 10px; margin: 0 0 12px; }
+    aside .param { display: grid; grid-template-columns: 70px 1fr; gap: 6px; align-items: center; margin-top: 6px; }
+    aside .param label { font-family: ui-monospace, monospace; font-size: 13px; }
+    .help { font-size: 12px; color: #536575; margin: 3px 0 0; line-height: 1.4; }
+    .routes { list-style: none; padding: 0; margin: 6px 0; }
+    .routes li { display: grid; grid-template-columns: 1fr 74px 30px; gap: 6px; align-items: center; margin-bottom: 6px; font-size: 14px; }
+    .routes li.single { grid-template-columns: 1fr 30px; }
+    .add-route { display: grid; grid-template-columns: 1fr auto; gap: 6px; }
+    .danger { color: #b03a2e; border-color: #d9a6a0; }
+    #problems { margin: 0; padding-left: 20px; }
+    #problems li { margin: 4px 0; color: #b03a2e; }
+    #problems li.ok { color: #2e7d4f; list-style: none; margin-left: -20px; }
+    .code-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+    .code-head h2 { margin: 0 8px 0 0; }
+    #code { margin: 0; padding: 14px; background: #f7f9fb; border: 1px solid #e4eaef; border-radius: 6px; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-x: auto; white-space: pre; }
+    #copy-status, #file-status { font-size: 14px; color: #536575; }
+    @media (max-width: 980px) { .workspace { grid-template-columns: 1fr; } aside { max-height: none; } }
+  </style>
+  <script id="schema" type="application/json">__SCHEMA_JSON__</script>
+</head>
+<body>
+<main>
+  <h1>FlowSim model builder <span class="tag">prototype</span></h1>
+  <p class="muted">Draw a small service network, set its durations, and copy the FlowSim script it writes. The script is ordinary FlowSim code to edit further, and running it is the final check of the model.</p>
+  <p class="notice" id="excluded"><strong>Not in this builder:</strong> customer types, schedules, finite buffers, abandonment, failures, priorities, and supply chains. Add them by editing the script. <span id="excluded-arguments" class="muted"></span></p>
+
+  <div class="toolbar">
+    <button id="add-source" type="button">Add source</button>
+    <button id="add-station" type="button">Add station</button>
+    <button id="delete-selected" type="button" disabled>Delete selected</button>
+    <span class="gap"></span>
+    <label for="time-unit">Time unit</label><input id="time-unit">
+    <label for="run-duration">Run length</label><input id="run-duration" inputmode="decimal">
+    <label for="run-seed">Seed</label><input id="run-seed" inputmode="numeric">
+    <label><input type="checkbox" id="run-drain"> Serve every customer after closing</label>
+    <span class="gap"></span>
+    <button id="save-json" type="button">Save model file</button>
+    <label class="button" for="load-json">Load model file</label>
+    <input type="file" id="load-json" accept=".json,application/json" hidden>
+    <button id="clear-model" type="button">New model</button>
+    <span id="file-status"></span>
+  </div>
+
+  <div class="workspace">
+    <section class="canvas-box">
+      <svg id="canvas" viewBox="0 0 920 520" role="img" aria-label="Model diagram"></svg>
+      <p id="canvas-status"></p>
+      <p class="muted" style="margin: 0 2px; font-size: 14px;">Drag a node to move it. Drag from the dot on a node's right edge to another node to add a route. Two or more routes from one node make a branch, with a probability on each arrow. Select a node or an arrow to edit it, and press Delete to remove it.</p>
+    </section>
+    <aside id="panel"></aside>
+  </div>
+
+  <section>
+    <h2>Checks</h2>
+    <ul id="problems"></ul>
+  </section>
+
+  <section>
+    <div class="code-head">
+      <h2>FlowSim script</h2>
+      <button id="copy-code" type="button">Copy</button>
+      <button id="download-code" type="button">Download .py</button>
+      <span id="copy-status"></span>
+    </div>
+    <pre id="code"></pre>
+  </section>
+</main>
+
+<script>
+"use strict";
+
+const SCHEMA = JSON.parse(document.getElementById("schema").textContent);
+const FORMAT = "flowsim-builder";
+const DISTRIBUTIONS = new Map(SCHEMA.distributions.map((entry) => [entry.name, entry]));
+const PARAMETERS = {};
+for (const kind of ["model", "source", "station", "run"]) {
+  PARAMETERS[kind] = new Map(SCHEMA[kind].map((entry) => [entry.name, entry]));
+}
+const SUPPORTED = SCHEMA.supported;
+const BRANCH_SUM_TOLERANCE = SCHEMA.branch_sum_tolerance;
+const RESERVED = new Set(SCHEMA.reserved);
+const WIDTH = 920;
+const HEIGHT = 520;
+const NODE_W = 150;
+const NODE_H = 58;
+const LINE = 88;
+
+const canvas = document.getElementById("canvas");
+const panel = document.getElementById("panel");
+
+let state = emptyState();
+let selection = null;
+let gesture = null;
+
+function emptyState() {
+  return {
+    time_unit: String(PARAMETERS.model.get("time_unit").default),
+    run: {duration: "480", seed: String(PARAMETERS.run.get("seed").default), drain: false},
+    nodes: [{id: "exit", kind: "exit", name: "Exit", x: 740, y: 230, values: {}}],
+    edges: [],
+    next: 1,
+  };
+}
+
+// ---------- Small helpers ----------
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>"']/g, (c) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+}
+
+function nodeById(id) {
+  return state.nodes.find((node) => node.id === id);
+}
+
+function outgoing(id) {
+  return state.edges.filter((edge) => edge.from === id);
+}
+
+function firstSentence(text) {
+  const match = text.match(/^.*?\.(\s|$)/);
+  return match ? match[0].trim() : text;
+}
+
+function exampleValue(distribution, parameter) {
+  if (parameter.name in distribution.example) {
+    return String(distribution.example[parameter.name]);
+  }
+  return parameter.default === null ? "" : String(parameter.default);
+}
+
+function distributionSpec(name) {
+  if (name === "constant") {
+    return {name: "constant", value: "1"};
+  }
+  const distribution = DISTRIBUTIONS.get(name);
+  const spec = {name};
+  for (const parameter of distribution.parameters) {
+    spec[parameter.name] = exampleValue(distribution, parameter);
+  }
+  return spec;
+}
+
+function defaultValues(kind) {
+  const values = {};
+  for (const name of SUPPORTED[kind]) {
+    if (name === "name") continue;
+    const parameter = PARAMETERS[kind].get(name);
+    if (parameter.kind === "duration") {
+      values[name] = distributionSpec(SCHEMA.distributions[0].name);
+    } else if (parameter.required) {
+      values[name] = String(parameter.minimum !== undefined ? Math.max(parameter.minimum, 1) : 1);
+    } else {
+      values[name] = parameter.default === null ? "" : String(parameter.default);
+    }
+  }
+  return values;
+}
+
+function uniqueName(base) {
+  const taken = new Set(state.nodes.map((node) => node.name));
+  let index = 1;
+  let name = base;
+  while (taken.has(name)) {
+    index += 1;
+    name = `${base} ${index}`;
+  }
+  return name;
+}
+
+function showStatus(text) {
+  document.getElementById("canvas-status").textContent = text;
+}
+
+// ---------- Editing ----------
+
+function addNode(kind) {
+  const count = state.nodes.filter((node) => node.kind !== "exit").length;
+  const column = count % 4;
+  const row = Math.floor(count / 4) % 4;
+  const node = {
+    id: `n${state.next}`,
+    kind,
+    name: uniqueName(kind === "source" ? "Source" : "Station"),
+    x: 30 + column * 175,
+    y: 40 + row * 115,
+    values: defaultValues(kind),
+  };
+  state.next += 1;
+  state.nodes.push(node);
+  selection = {type: "node", id: node.id};
+  showStatus("");
+  renderAll();
+}
+
+function shareSplit(edges) {
+  const count = edges.length;
+  const base = Math.floor(100 / count) / 100;
+  edges.forEach((edge, index) => {
+    const share = index === count - 1 ? Math.round((1 - base * (count - 1)) * 100) / 100 : base;
+    edge.probability = String(share);
+  });
+}
+
+// The rules for one new route, shared by the add-route controls and file loading.
+// Returns the reason the route is refused, or null.
+function routeProblem(nodes, edges, from, to) {
+  const origin = nodes.find((node) => node.id === from);
+  const target = nodes.find((node) => node.id === to);
+  if (from === to) return "A node cannot route to itself.";
+  if (origin.kind === "exit") return "The exit cannot have an outgoing route.";
+  if (target.kind === "source") return "A source cannot receive routed customers.";
+  if (edges.some((edge) => edge.from === from && edge.to === to)) {
+    return `${origin.name} already routes to ${target.name}.`;
+  }
+  return null;
+}
+
+function addEdge(from, to) {
+  const origin = nodeById(from);
+  const target = nodeById(to);
+  if (!origin || !target) return;
+  const refusal = routeProblem(state.nodes, state.edges, from, to);
+  if (refusal) {
+    showStatus(refusal);
+    return;
+  }
+  state.edges.push({from, to, probability: "1"});
+  const routes = outgoing(from);
+  if (routes.length > 1) shareSplit(routes);
+  showStatus("");
+  renderAll();
+}
+
+function removeEdge(from, to) {
+  state.edges = state.edges.filter((edge) => !(edge.from === from && edge.to === to));
+  const routes = outgoing(from);
+  if (routes.length === 1) routes[0].probability = "1";
+  if (selection && selection.type === "edge" && selection.from === from && selection.to === to) {
+    selection = {type: "node", id: from};
+  }
+  renderAll();
+}
+
+function removeNode(id) {
+  const node = nodeById(id);
+  if (!node || node.kind === "exit") return;
+  const origins = new Set(state.edges.filter((edge) => edge.to === id).map((edge) => edge.from));
+  state.edges = state.edges.filter((edge) => edge.from !== id && edge.to !== id);
+  for (const origin of origins) {
+    const routes = outgoing(origin);
+    if (routes.length === 1) routes[0].probability = "1";
+  }
+  state.nodes = state.nodes.filter((item) => item.id !== id);
+  selection = null;
+  renderAll();
+}
+
+function deleteSelection() {
+  if (!selection) return;
+  if (selection.type === "node") removeNode(selection.id);
+  else removeEdge(selection.from, selection.to);
+}
+
+// ---------- Canvas ----------
+
+function anchor(node, toward) {
+  // The point where the line from the node's center toward a point leaves its box.
+  const cx = node.x + NODE_W / 2;
+  const cy = node.y + NODE_H / 2;
+  const dx = toward.x - cx;
+  const dy = toward.y - cy;
+  if (dx === 0 && dy === 0) return {x: cx, y: cy};
+  const scale = 1 / Math.max(Math.abs(dx) / (NODE_W / 2 + 4), Math.abs(dy) / (NODE_H / 2 + 4));
+  return {x: cx + dx * scale, y: cy + dy * scale};
+}
+
+function center(node) {
+  return {x: node.x + NODE_W / 2, y: node.y + NODE_H / 2};
+}
+
+function short(text, length) {
+  return text.length > length ? `${text.slice(0, length - 1)}…` : text;
+}
+
+function durationText(spec) {
+  if (!spec) return "";
+  if (spec.name === "constant") return `constant ${spec.value}`;
+  const distribution = DISTRIBUTIONS.get(spec.name);
+  const shown = distribution.parameters.map((parameter) => `${parameter.name}=${spec[parameter.name]}`);
+  return `${spec.name}(${shown.join(", ")})`;
+}
+
+function nodeDetail(node) {
+  if (node.kind === "exit") return "model.exit";
+  const parts = [];
+  for (const name of SUPPORTED[node.kind]) {
+    if (name === "name") continue;
+    const parameter = PARAMETERS[node.kind].get(name);
+    const value = node.values[name];
+    if (parameter.kind === "duration") parts.push(durationText(value));
+    else if (name === "capacity") parts.push(`${value} server${value === "1" ? "" : "s"}`);
+  }
+  return parts.join(", ");
+}
+
+function renderCanvas() {
+  const parts = [
+    '<defs>',
+    '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#455966"></path></marker>',
+    '<marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d55e00"></path></marker>',
+    '<pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20,0 L0,0 L0,20" fill="none" stroke="#eef2f5" stroke-width="1"></path></pattern>',
+    '</defs>',
+    `<rect class="background" x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"></rect>`,
+  ];
+  const labels = [];
+  for (const edge of state.edges) {
+    const origin = nodeById(edge.from);
+    const target = nodeById(edge.to);
+    const start = anchor(origin, center(target));
+    const end = anchor(target, center(origin));
+    const chosen = selection && selection.type === "edge" && selection.from === edge.from && selection.to === edge.to;
+    const path = `M${start.x.toFixed(1)},${start.y.toFixed(1)} L${end.x.toFixed(1)},${end.y.toFixed(1)}`;
+    const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+    parts.push(`<path class="edge${chosen ? " selected" : ""}" d="${path}" marker-end="url(#${chosen ? "arrow-selected" : "arrow"})" ${data}></path>`);
+    parts.push(`<path class="edge-hit" d="${path}" ${data}><title>${escapeHtml(origin.name)} to ${escapeHtml(target.name)}</title></path>`);
+    if (outgoing(edge.from).length > 1) {
+      const mx = (start.x + end.x) / 2;
+      const my = (start.y + end.y) / 2;
+      labels.push(
+        `<foreignObject x="${(mx - 32).toFixed(1)}" y="${(my - 14).toFixed(1)}" width="64" height="28">` +
+        `<input class="edge-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability from ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}" inputmode="decimal">` +
+        "</foreignObject>"
+      );
+    }
+  }
+  for (const node of state.nodes) {
+    const chosen = selection && selection.type === "node" && selection.id === node.id;
+    const kindLabel = node.kind === "exit" ? "exit" : node.kind;
+    const rx = node.kind === "source" ? 24 : node.kind === "exit" ? 4 : 8;
+    const detail = nodeDetail(node);
+    parts.push(
+      `<g class="node ${node.kind}${chosen ? " selected" : ""}" data-node-id="${escapeHtml(node.id)}" transform="translate(${node.x},${node.y})">` +
+      `<title>${escapeHtml(node.name)}: ${escapeHtml(detail)}</title>` +
+      `<rect class="body" width="${NODE_W}" height="${NODE_H}" rx="${rx}"></rect>` +
+      `<text class="kind" x="12" y="16">${kindLabel}</text>` +
+      `<text class="name" x="12" y="33">${escapeHtml(short(node.name, 20))}</text>` +
+      `<text class="detail" x="12" y="49">${escapeHtml(short(detail, 24))}</text>` +
+      (node.kind === "exit" ? "" : `<circle class="handle" cx="${NODE_W}" cy="${NODE_H / 2}" r="7"><title>Drag to another node to add a route</title></circle>`) +
+      "</g>"
+    );
+  }
+  parts.push(...labels);
+  if (gesture && gesture.type === "connect" && gesture.point) {
+    const origin = nodeById(gesture.from);
+    parts.push(`<line class="pending" x1="${origin.x + NODE_W}" y1="${origin.y + NODE_H / 2}" x2="${gesture.point.x}" y2="${gesture.point.y}"></line>`);
+  }
+  canvas.innerHTML = parts.join("");
+}
+
+function svgPoint(event) {
+  const point = canvas.createSVGPoint();
+  point.x = event.clientX;
+  point.y = event.clientY;
+  return point.matrixTransform(canvas.getScreenCTM().inverse());
+}
+
+function nodeAt(point) {
+  // The topmost node under a point, i.e., the last one drawn.
+  for (let index = state.nodes.length - 1; index >= 0; index -= 1) {
+    const node = state.nodes[index];
+    if (point.x >= node.x && point.x <= node.x + NODE_W && point.y >= node.y && point.y <= node.y + NODE_H) {
+      return node;
+    }
+  }
+  return null;
+}
+
+canvas.addEventListener("pointerdown", (event) => {
+  if (event.target.closest("input")) return;
+  const point = svgPoint(event);
+  const handle = event.target.closest(".handle");
+  const group = event.target.closest(".node");
+  const edge = event.target.closest(".edge-hit");
+  if (handle && group) {
+    gesture = {type: "connect", from: group.dataset.nodeId, point};
+    event.preventDefault();
+  } else if (group) {
+    const node = nodeById(group.dataset.nodeId);
+    gesture = {type: "move", id: node.id, dx: point.x - node.x, dy: point.y - node.y, moved: false};
+    selection = {type: "node", id: node.id};
+    renderAll();
+    event.preventDefault();
+  } else if (edge) {
+    selection = {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
+    renderAll();
+  } else {
+    selection = null;
+    renderAll();
+  }
+});
+
+window.addEventListener("pointermove", (event) => {
+  if (!gesture) return;
+  const point = svgPoint(event);
+  if (gesture.type === "move") {
+    const node = nodeById(gesture.id);
+    node.x = Math.round(Math.min(Math.max(point.x - gesture.dx, 0), WIDTH - NODE_W));
+    node.y = Math.round(Math.min(Math.max(point.y - gesture.dy, 0), HEIGHT - NODE_H));
+    gesture.moved = true;
+  } else {
+    gesture.point = point;
+  }
+  renderCanvas();
+});
+
+window.addEventListener("pointerup", (event) => {
+  if (!gesture) return;
+  const finished = gesture;
+  gesture = null;
+  if (finished.type === "connect") {
+    const target = nodeAt(svgPoint(event));
+    if (target) addEdge(finished.from, target.id);
+    else renderCanvas();
+  } else if (finished.moved) {
+    update();
+  }
+});
+
+canvas.addEventListener("input", (event) => {
+  const input = event.target.closest(".edge-prob");
+  if (!input) return;
+  setProbability(input.dataset.from, input.dataset.to, input.value, input);
+});
+
+function setProbability(from, to, value, source) {
+  const edge = state.edges.find((item) => item.from === from && item.to === to);
+  edge.probability = value;
+  // Keep the arrow field and the panel field showing the same value.
+  for (const field of document.querySelectorAll(`[data-from="${CSS.escape(from)}"][data-to="${CSS.escape(to)}"]`)) {
+    if (field !== source && field.tagName === "INPUT") field.value = value;
+  }
+  update();
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.target.closest("input, select, textarea")) return;
+  if ((event.key === "Delete" || event.key === "Backspace") && selection) {
+    deleteSelection();
+    event.preventDefault();
+  }
+});
+
+// ---------- Side panel ----------
+
+function numberField(id, label, value, help, optional) {
+  return (
+    `<div class="field"><label for="${escapeHtml(id)}">${escapeHtml(label)}</label>` +
+    `<input id="${escapeHtml(id)}" value="${escapeHtml(value)}" inputmode="decimal"${optional ? ' placeholder="optional"' : ""}>` +
+    (help ? `<p class="help">${escapeHtml(help)}</p>` : "") +
+    "</div>"
+  );
+}
+
+function durationFields(name, parameter, spec) {
+  const options = ['<option value="constant">constant</option>']
+    .concat(SCHEMA.distributions.map((entry) => `<option value="${escapeHtml(entry.name)}">${escapeHtml(entry.name)}</option>`))
+    .join("");
+  let inner = "";
+  if (spec.name === "constant") {
+    inner = `<div class="param"><label for="field-${escapeHtml(name)}-value">value</label><input id="field-${escapeHtml(name)}-value" data-duration="${escapeHtml(name)}" data-key="value" value="${escapeHtml(spec.value)}" inputmode="decimal"></div>`;
+  } else {
+    const distribution = DISTRIBUTIONS.get(spec.name);
+    inner = `<p class="help">${escapeHtml(distribution.summary)}</p>`;
+    for (const item of distribution.parameters) {
+      inner +=
+        `<div class="param"><label for="field-${name}-${item.name}">${item.name}</label>` +
+        `<input id="field-${name}-${item.name}" data-duration="${name}" data-key="${item.name}" value="${escapeHtml(spec[item.name])}" inputmode="decimal"></div>` +
+        `<p class="help">${escapeHtml(item.description)}</p>`;
+    }
+  }
+  return (
+    `<fieldset><legend>${name}</legend>` +
+    `<p class="help" style="margin: 0 0 6px;">${escapeHtml(firstSentence(parameter.description))}</p>` +
+    `<select id="field-${escapeHtml(name)}-kind" data-duration-kind="${escapeHtml(name)}" aria-label="${escapeHtml(name)} distribution">${options.replace(`value="${escapeHtml(spec.name)}"`, `value="${escapeHtml(spec.name)}" selected`)}</select>` +
+    inner +
+    "</fieldset>"
+  );
+}
+
+function routeFields(node) {
+  const routes = outgoing(node.id);
+  const branch = routes.length > 1;
+  let html = `<h2 style="margin-top: 16px;">Routes from ${escapeHtml(node.name)}</h2>`;
+  if (!routes.length) {
+    html += '<p class="help">No onward route yet.</p>';
+  } else {
+    html += `<ul class="routes">`;
+    for (const edge of routes) {
+      const target = nodeById(edge.to);
+      const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+      html +=
+        `<li class="${branch ? "" : "single"}"><span>to ${escapeHtml(target.name)}</span>` +
+        (branch ? `<input class="panel-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability to ${escapeHtml(target.name)}" inputmode="decimal">` : "") +
+        `<button type="button" class="remove-route danger" ${data} title="Remove this route" aria-label="Remove the route to ${escapeHtml(target.name)}">×</button></li>`;
+    }
+    html += "</ul>";
+    if (branch) {
+      html += `<p class="help" id="branch-sum">${branchSumText(node.id)}</p>`;
+    }
+  }
+  const targets = state.nodes.filter(
+    (item) => item.id !== node.id && item.kind !== "source" && !routes.some((edge) => edge.to === item.id),
+  );
+  if (targets.length) {
+    html +=
+      '<div class="add-route"><select id="route-target" aria-label="Route destination">' +
+      targets.map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)}</option>`).join("") +
+      '</select><button type="button" id="add-route">Add route</button></div>';
+  }
+  return html;
+}
+
+function shownSum(total) {
+  // Fifteen digits show a sum that misses one by the tolerance, without float noise.
+  return Number(total.toPrecision(15));
+}
+
+function branchSumText(id) {
+  const total = outgoing(id).reduce((sum, edge) => sum + Number(edge.probability), 0);
+  const shown = Number.isFinite(total) ? shownSum(total) : "not a number";
+  return `A branch: each customer takes one route with the probability shown. The probabilities sum to ${shown} and must sum to 1.`;
+}
+
+function renderPanel() {
+  panel.removeAttribute("data-node-id");
+  if (!selection) {
+    panel.innerHTML =
+      "<h2>Nothing selected</h2>" +
+      '<p class="help">Add a source or a station, then select a node or an arrow to edit it. Every route ends at the exit, which is <code>model.exit</code> in the script.</p>';
+    return;
+  }
+  if (selection.type === "edge") {
+    const edge = state.edges.find((item) => item.from === selection.from && item.to === selection.to);
+    const origin = nodeById(edge.from);
+    const target = nodeById(edge.to);
+    const branch = outgoing(edge.from).length > 1;
+    const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+    panel.innerHTML =
+      `<h2>Route</h2><p>From ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}.</p>` +
+      (branch
+        ? `<div class="field"><label for="edge-probability">probability</label><input id="edge-probability" class="panel-prob" ${data} value="${escapeHtml(edge.probability)}" inputmode="decimal"><p class="help" id="branch-sum">${branchSumText(edge.from)}</p></div>`
+        : '<p class="help">The only route from this node, so every customer takes it.</p>') +
+      '<button type="button" id="delete-route" class="danger">Delete route</button>';
+    return;
+  }
+  const node = nodeById(selection.id);
+  panel.dataset.nodeId = node.id;
+  if (node.kind === "exit") {
+    panel.innerHTML =
+      "<h2>Exit</h2>" +
+      '<p class="help">Customers leave the network here. In the script it is <code>model.exit</code>, and its name is always Exit.</p>';
+    return;
+  }
+  let html = `<h2>${node.kind === "source" ? "Source" : "Station"}</h2>`;
+  html += `<div class="field"><label for="field-name">name</label><input id="field-name" value="${escapeHtml(node.name)}"></div>`;
+  for (const name of SUPPORTED[node.kind]) {
+    if (name === "name") continue;
+    const parameter = PARAMETERS[node.kind].get(name);
+    if (parameter.kind === "duration") {
+      html += durationFields(name, parameter, node.values[name]);
+    } else {
+      html += numberField(`field-${name}`, name, node.values[name], firstSentence(parameter.description), !parameter.required);
+    }
+  }
+  html += routeFields(node);
+  html += `<p style="margin-top: 16px;"><button type="button" id="delete-node" class="danger">Delete ${node.kind}</button></p>`;
+  panel.innerHTML = html;
+}
+
+panel.addEventListener("input", (event) => {
+  const target = event.target;
+  if (target.classList.contains("panel-prob")) {
+    setProbability(target.dataset.from, target.dataset.to, target.value, target);
+    const sum = document.getElementById("branch-sum");
+    if (sum) sum.textContent = branchSumText(target.dataset.from);
+    return;
+  }
+  if (!selection || selection.type !== "node" || target.dataset.durationKind) return;
+  const node = nodeById(selection.id);
+  if (target.id === "field-name") {
+    node.name = target.value;
+  } else if (target.dataset.duration) {
+    node.values[target.dataset.duration][target.dataset.key] = target.value;
+  } else if (target.id.startsWith("field-")) {
+    node.values[target.id.slice("field-".length)] = target.value;
+  } else {
+    return;
+  }
+  renderCanvas();
+  update();
+});
+
+panel.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!target.dataset.durationKind || !selection) return;
+  const node = nodeById(selection.id);
+  node.values[target.dataset.durationKind] = distributionSpec(target.value);
+  renderAll();
+});
+
+panel.addEventListener("click", (event) => {
+  const target = event.target;
+  if (target.id === "add-route") {
+    addEdge(selection.id, document.getElementById("route-target").value);
+  } else if (target.classList.contains("remove-route")) {
+    removeEdge(target.dataset.from, target.dataset.to);
+  } else if (target.id === "delete-node" || target.id === "delete-route") {
+    deleteSelection();
+  }
+});
+
+// ---------- Checks ----------
+
+function checkNumber(raw, rule, label, problems) {
+  // rule: kind ("number" or "integer"), minimum, exclusive, required.
+  const text = String(raw).trim();
+  if (text === "") {
+    if (rule.required) problems.push(`${label} needs a value.`);
+    return;
+  }
+  if (rule.kind === "integer") {
+    // Integers are written out as typed, so they must be plain digits that a
+    // number holds exactly.
+    if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text))) {
+      problems.push(`${label} must be a whole number written in digits, from 0 to ${Number.MAX_SAFE_INTEGER}, not ${text}.`);
+      return;
+    }
+  }
+  const value = Number(text);
+  if (!Number.isFinite(value)) {
+    problems.push(`${label} must be a number, not "${text}".`);
+    return;
+  }
+  if (rule.minimum !== undefined) {
+    if (rule.exclusive && value <= rule.minimum) problems.push(`${label} must be greater than ${rule.minimum}, not ${text}.`);
+    if (!rule.exclusive && value < rule.minimum) problems.push(`${label} must be at least ${rule.minimum}, not ${text}.`);
+  }
+}
+
+function checkDuration(spec, parameter, label, problems) {
+  if (spec.name === "constant") {
+    checkNumber(spec.value, {kind: "number", minimum: parameter.minimum, exclusive: parameter.exclusive, required: true}, label, problems);
+    return;
+  }
+  for (const item of DISTRIBUTIONS.get(spec.name).parameters) {
+    checkNumber(spec[item.name], {...item, required: true}, `${label} ${spec.name} ${item.name}`, problems);
+  }
+}
+
+function reachable() {
+  const seen = new Set();
+  const stack = state.nodes.filter((node) => node.kind === "source").map((node) => node.id);
+  while (stack.length) {
+    const id = stack.pop();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    for (const edge of outgoing(id)) stack.push(edge.to);
+  }
+  return seen;
+}
+
+function findCycle() {
+  const status = new Map();
+  const path = [];
+  function visit(id) {
+    status.set(id, "open");
+    path.push(id);
+    for (const edge of outgoing(id)) {
+      if (status.get(edge.to) === "open") return path.slice(path.indexOf(edge.to));
+      if (!status.has(edge.to)) {
+        const found = visit(edge.to);
+        if (found) return found;
+      }
+    }
+    path.pop();
+    status.set(id, "done");
+    return null;
+  }
+  for (const node of state.nodes) {
+    if (!status.has(node.id)) {
+      const found = visit(node.id);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
+function problems() {
+  const found = [];
+  if (!state.time_unit.trim()) found.push("The time unit needs a label, e.g., minutes.");
+  checkNumber(state.run.duration, PARAMETERS.run.get("duration"), "Run length", found);
+  checkNumber(state.run.seed, {...PARAMETERS.run.get("seed"), required: true}, "Seed", found);
+  const nodes = state.nodes.filter((node) => node.kind !== "exit");
+  if (!nodes.some((node) => node.kind === "source")) found.push("Add a source, where customers arrive.");
+  const counts = new Map();
+  for (const node of state.nodes) counts.set(node.name.trim(), (counts.get(node.name.trim()) || 0) + 1);
+  for (const [name, count] of counts) {
+    if (name === "") found.push("Every node needs a name.");
+    else if (count > 1) found.push(`${count} nodes are named "${name}". Names must be unique${name === "Exit" ? ", and the exit is named Exit" : ""}.`);
+  }
+  for (const node of nodes) {
+    for (const name of SUPPORTED[node.kind]) {
+      if (name === "name") continue;
+      const parameter = PARAMETERS[node.kind].get(name);
+      const label = `${node.name}: ${name}`;
+      if (parameter.kind === "duration") checkDuration(node.values[name], parameter, label, found);
+      else checkNumber(node.values[name], parameter, label, found);
+    }
+  }
+  const reached = reachable();
+  for (const node of state.nodes) {
+    const notes = [];
+    if (node.kind !== "source" && !reached.has(node.id)) notes.push("No source reaches it.");
+    if (node.kind !== "exit" && !outgoing(node.id).length) notes.push("It has no onward route. End its route at the exit.");
+    if (notes.length) found.push(`${node.name}: ${notes.join(" ")}`);
+  }
+  for (const node of nodes) {
+    const routes = outgoing(node.id);
+    if (routes.length < 2) continue;
+    let total = 0;
+    for (const edge of routes) {
+      const target = nodeById(edge.to);
+      checkNumber(edge.probability, {kind: "number", minimum: 0, exclusive: true, required: true}, `Probability from ${node.name} to ${target.name}`, found);
+      total += Number(edge.probability);
+    }
+    if (Number.isFinite(total) && Math.abs(total - 1) > BRANCH_SUM_TOLERANCE) {
+      found.push(`Branch probabilities from ${node.name} sum to ${shownSum(total)}, not 1.`);
+    }
+  }
+  const cycle = findCycle();
+  if (cycle) {
+    found.push(`The routes form a loop through ${cycle.map((id) => nodeById(id).name).join(", ")}. FlowSim supports acyclic routes only.`);
+  }
+  return found;
+}
+
+function renderProblems() {
+  const list = document.getElementById("problems");
+  const found = problems();
+  if (!found.length) {
+    list.innerHTML =
+      '<li class="ok">No problems found in the page. The page checks routes, probabilities, and single values; ' +
+      "the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs.</li>";
+  } else {
+    list.innerHTML = found.map((text) => `<li>${escapeHtml(text)}</li>`).join("");
+  }
+}
+
+// ---------- Code generation ----------
+
+function pyString(text) {
+  return JSON.stringify(text);
+}
+
+function pyNumber(raw, kind) {
+  const text = String(raw).trim();
+  const value = Number(text);
+  if (text === "" || !Number.isFinite(value)) return "None";
+  if (kind === "integer") {
+    // Emit the typed digits, never a rounded number. Python rejects leading zeros.
+    return /^\d+$/.test(text) && Number.isSafeInteger(value) ? text.replace(/^0+(?=\d)/, "") : "None";
+  }
+  return String(value);
+}
+
+function identifiers() {
+  const used = new Set();
+  const names = new Map();
+  for (const node of state.nodes) {
+    if (node.kind === "exit") {
+      names.set(node.id, "model.exit");
+      continue;
+    }
+    let base = node.name
+      .normalize("NFKD")
+      .replace(/[̀-ͯ]/g, "")
+      .toLowerCase()
+      .replace(/[^a-z0-9_]+/g, "_")
+      .replace(/_+/g, "_")
+      .replace(/^_+|_+$/g, "");
+    if (!base) base = node.kind;
+    if (/^[0-9]/.test(base)) base = `${node.kind}_${base}`;
+    if (RESERVED.has(base)) base = `${base}_${node.kind}`;
+    let name = base;
+    let index = 2;
+    while (used.has(name) || RESERVED.has(name)) {
+      name = `${base}_${index}`;
+      index += 1;
+    }
+    used.add(name);
+    names.set(node.id, name);
+  }
+  return names;
+}
+
+function pad(indent) {
+  return " ".repeat(indent);
+}
+
+// A call is {fn, args: [[keyword, value]]}, where a value is code text or a call.
+function renderCall(call, indent) {
+  const args = call.args.map(([key, value]) => [key, typeof value === "string" ? value : renderCall(value, indent + 4)]);
+  if (args.length < 2 && !args.some(([, value]) => value.includes("\n"))) {
+    const single = `${call.fn}(${args.map(([key, value]) => `${key}=${value}`).join(", ")})`;
+    if (indent + single.length <= LINE) return single;
+  }
+  return `${call.fn}(\n${args.map(([key, value]) => `${pad(indent + 4)}${key}=${value},\n`).join("")}${pad(indent)})`;
+}
+
+// Format a call with positional arguments the way ruff format does: on one
+// line, else one argument per line, else with the collection exploded.
+function renderPositional(fn, items, collection) {
+  const [open, close] = collection.brackets;
+  const inner = `${open}${collection.items.join(", ")}${close}`;
+  const flat = `${fn}(${[...items, inner].join(", ")})`;
+  if (flat.length <= LINE) return flat;
+  if (!items.length && 4 + inner.length <= LINE) return `${fn}(\n    ${inner}\n)`;
+  const exploded = `${open}\n${collection.items.map((item) => `${pad(8)}${item},\n`).join("")}${pad(4)}${close}`;
+  const collectionText = 4 + inner.length + 1 <= LINE ? inner : exploded;
+  if (!items.length) return `${fn}(\n    ${exploded}\n)`;
+  return `${fn}(\n${items.map((item) => `${pad(4)}${item},\n`).join("")}${pad(4)}${collectionText},\n)`;
+}
+
+function durationCall(spec, used) {
+  if (spec.name === "constant") return pyNumber(spec.value, "number");
+  used.add(spec.name);
+  const distribution = DISTRIBUTIONS.get(spec.name);
+  return {
+    fn: spec.name,
+    args: distribution.parameters.map((item) => [item.name, pyNumber(spec[item.name], item.kind)]),
+  };
+}
+
+function routeStatements() {
+  const outs = new Map(state.nodes.map((node) => [node.id, outgoing(node.id)]));
+  const done = new Set();
+  const statements = [];
+  const queue = state.nodes.filter((node) => node.kind === "source").map((node) => node.id);
+  const visited = new Set();
+  function handle(id) {
+    if (done.has(id)) return [];
+    const routes = outs.get(id);
+    if (routes.length === 1) {
+      const chain = [id];
+      let current = id;
+      while (outs.get(current).length === 1 && !done.has(current)) {
+        done.add(current);
+        const next = outs.get(current)[0].to;
+        const repeat = chain.includes(next);
+        chain.push(next);
+        if (repeat) break;
+        current = next;
+      }
+      statements.push({type: "route", nodes: chain});
+      return [chain[chain.length - 1]];
+    }
+    if (routes.length > 1) {
+      done.add(id);
+      statements.push({type: "branch", origin: id, routes});
+      return routes.map((edge) => edge.to);
+    }
+    return [];
+  }
+  while (queue.length) {
+    const id = queue.shift();
+    if (visited.has(id)) continue;
+    visited.add(id);
+    queue.push(...handle(id));
+  }
+  for (const node of state.nodes) handle(node.id);
+  return statements;
+}
+
+function generate() {
+  const names = identifiers();
+  const used = new Set();
+  const body = [`model = ${renderCall({fn: "Model", args: [["time_unit", pyString(state.time_unit.trim())]]}, 0)}`];
+  for (const node of state.nodes) {
+    if (node.kind === "exit") continue;
+    const args = [["name", pyString(node.name.trim())]];
+    for (const name of SUPPORTED[node.kind]) {
+      if (name === "name") continue;
+      const parameter = PARAMETERS[node.kind].get(name);
+      const value = node.values[name];
+      if (parameter.kind === "duration") {
+        args.push([name, durationCall(value, used)]);
+      } else if (String(value).trim() !== "" || parameter.required) {
+        args.push([name, pyNumber(value, parameter.kind)]);
+      }
+    }
+    body.push(`${names.get(node.id)} = ${renderCall({fn: `model.${node.kind}`, args}, 0)}`);
+  }
+  for (const statement of routeStatements()) {
+    if (statement.type === "route") {
+      body.push(renderPositional("model.route", [], {brackets: ["[", "]"], items: statement.nodes.map((id) => names.get(id))}));
+    } else {
+      const items = statement.routes.map((edge) => `${names.get(edge.to)}: ${pyNumber(edge.probability, "number")}`);
+      body.push(renderPositional("model.branch", [names.get(statement.origin)], {brackets: ["{", "}"], items}));
+    }
+  }
+  const run = [
+    ["duration", pyNumber(state.run.duration, "number")],
+    ["seed", pyNumber(state.run.seed, "integer")],
+  ];
+  if (state.run.drain) run.push(["drain", "True"]);
+  const imports = ["Model", ...[...used].sort()];
+  return [
+    '"""A FlowSim model drawn in the model builder. Edit it like any FlowSim script."""',
+    "",
+    `from flowsim import ${imports.join(", ")}`,
+    "",
+    ...body,
+    "",
+    `results = ${renderCall({fn: "model.run", args: run}, 0)}`,
+    "print(results)",
+    "",
+  ].join("\n");
+}
+
+// ---------- Save and load ----------
+
+function jsonNumber(raw) {
+  const text = String(raw).trim();
+  if (text === "") return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : text;
+}
+
+function jsonDuration(spec) {
+  const result = {name: spec.name};
+  for (const [key, value] of Object.entries(spec)) {
+    if (key !== "name") result[key] = jsonNumber(value);
+  }
+  return result;
+}
+
+function toJson() {
+  return {
+    format: FORMAT,
+    version: SCHEMA.format_version,
+    flowsim_version: SCHEMA.flowsim_version,
+    time_unit: state.time_unit,
+    run: {duration: jsonNumber(state.run.duration), seed: jsonNumber(state.run.seed), drain: state.run.drain},
+    nodes: state.nodes.map((node) => {
+      const entry = {id: node.id, kind: node.kind, name: node.name, x: node.x, y: node.y};
+      for (const name of node.kind === "exit" ? [] : SUPPORTED[node.kind]) {
+        if (name === "name") continue;
+        const value = node.values[name];
+        entry[name] = PARAMETERS[node.kind].get(name).kind === "duration" ? jsonDuration(value) : jsonNumber(value);
+      }
+      return entry;
+    }),
+    edges: state.edges.map((edge) => ({from: edge.from, to: edge.to, probability: jsonNumber(edge.probability)})),
+  };
+}
+
+function text(value) {
+  return value === null || value === undefined ? "" : String(value);
+}
+
+function fromJson(data) {
+  if (!data || data.format !== FORMAT) throw new Error("This file is not a FlowSim builder model.");
+  if (data.version !== SCHEMA.format_version) {
+    throw new Error(`This file has model format version ${data.version}, and this page reads version ${SCHEMA.format_version}.`);
+  }
+  const loaded = emptyState();
+  loaded.time_unit = text(data.time_unit);
+  loaded.run = {duration: text(data.run.duration), seed: text(data.run.seed), drain: data.run.drain === true};
+  loaded.nodes = [];
+  const ids = new Set();
+  let next = 1;
+  for (const entry of data.nodes) {
+    if (!["source", "station", "exit"].includes(entry.kind)) throw new Error(`Unknown node kind "${entry.kind}".`);
+    if (typeof entry.id !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(entry.id)) {
+      throw new Error("Every node id must be 1 to 40 letters, digits, underscores, or hyphens.");
+    }
+    if (ids.has(entry.id)) throw new Error(`Two nodes have the id "${entry.id}".`);
+    ids.add(entry.id);
+    const node = {id: String(entry.id), kind: entry.kind, name: text(entry.name), x: Number(entry.x) || 0, y: Number(entry.y) || 0, values: {}};
+    if (node.kind === "exit") {
+      node.name = "Exit";
+    } else {
+      for (const name of SUPPORTED[node.kind]) {
+        if (name === "name") continue;
+        const value = entry[name];
+        if (PARAMETERS[node.kind].get(name).kind === "duration") {
+          if (!value || (value.name !== "constant" && !DISTRIBUTIONS.has(value.name))) {
+            throw new Error(`${node.name}: unknown ${name} distribution.`);
+          }
+          const spec = {name: value.name};
+          const keys = value.name === "constant" ? ["value"] : DISTRIBUTIONS.get(value.name).parameters.map((item) => item.name);
+          for (const key of keys) spec[key] = text(value[key]);
+          node.values[name] = spec;
+        } else {
+          node.values[name] = text(value);
+        }
+      }
+    }
+    const number = /^n(\d+)$/.exec(node.id);
+    if (number) next = Math.max(next, Number(number[1]) + 1);
+    loaded.nodes.push(node);
+  }
+  if (loaded.nodes.filter((node) => node.kind === "exit").length !== 1) throw new Error("A model file needs exactly one exit.");
+  for (const edge of data.edges) {
+    if (typeof edge.from !== "string" || typeof edge.to !== "string" || !ids.has(edge.from) || !ids.has(edge.to)) {
+      throw new Error("A route names a node the file does not have.");
+    }
+    const refusal = routeProblem(loaded.nodes, loaded.edges, edge.from, edge.to);
+    if (refusal) throw new Error(refusal);
+    loaded.edges.push({from: String(edge.from), to: String(edge.to), probability: text(edge.probability)});
+  }
+  loaded.next = next;
+  return loaded;
+}
+
+function download(name, content, type) {
+  const url = URL.createObjectURL(new Blob([content], {type}));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+document.getElementById("save-json").addEventListener("click", () => {
+  download("flowsim_model.json", `${JSON.stringify(toJson(), null, 2)}\n`, "application/json");
+});
+
+document.getElementById("load-json").addEventListener("change", async (event) => {
+  const file = event.target.files[0];
+  const status = document.getElementById("file-status");
+  if (!file) return;
+  try {
+    state = fromJson(JSON.parse(await file.text()));
+    selection = null;
+    syncSettings();
+    renderAll();
+    status.textContent = `Loaded ${file.name}.`;
+  } catch (error) {
+    status.textContent = `Could not load ${file.name}: ${error.message}`;
+  }
+  event.target.value = "";
+});
+
+document.getElementById("clear-model").addEventListener("click", () => {
+  state = emptyState();
+  selection = null;
+  syncSettings();
+  renderAll();
+});
+
+document.getElementById("download-code").addEventListener("click", () => {
+  download("flowsim_model.py", generate(), "text/x-python");
+});
+
+document.getElementById("copy-code").addEventListener("click", async () => {
+  const status = document.getElementById("copy-status");
+  const code = document.getElementById("code");
+  try {
+    await navigator.clipboard.writeText(code.textContent);
+    status.textContent = "Copied.";
+  } catch (error) {
+    // A sandboxed frame may block the clipboard, so select the code instead.
+    const range = document.createRange();
+    range.selectNodeContents(code);
+    const chosen = window.getSelection();
+    chosen.removeAllRanges();
+    chosen.addRange(range);
+    const copied = document.execCommand && document.execCommand("copy");
+    status.textContent = copied ? "Copied." : "The code is selected. Copy it with the keyboard.";
+  }
+});
+
+// ---------- Run settings ----------
+
+function syncSettings() {
+  document.getElementById("time-unit").value = state.time_unit;
+  document.getElementById("run-duration").value = state.run.duration;
+  document.getElementById("run-seed").value = state.run.seed;
+  document.getElementById("run-drain").checked = state.run.drain;
+}
+
+document.getElementById("time-unit").addEventListener("input", (event) => {
+  state.time_unit = event.target.value;
+  update();
+});
+document.getElementById("run-duration").addEventListener("input", (event) => {
+  state.run.duration = event.target.value;
+  update();
+});
+document.getElementById("run-seed").addEventListener("input", (event) => {
+  state.run.seed = event.target.value;
+  update();
+});
+document.getElementById("run-drain").addEventListener("change", (event) => {
+  state.run.drain = event.target.checked;
+  update();
+});
+document.getElementById("add-source").addEventListener("click", () => addNode("source"));
+document.getElementById("add-station").addEventListener("click", () => addNode("station"));
+document.getElementById("delete-selected").addEventListener("click", deleteSelection);
+
+// ---------- Rendering ----------
+
+function update() {
+  document.getElementById("code").textContent = generate();
+  document.getElementById("copy-status").textContent = "";
+  renderProblems();
+  const exitSelected = selection && selection.type === "node" && nodeById(selection.id).kind === "exit";
+  document.getElementById("delete-selected").disabled = !selection || exitSelected;
+}
+
+function renderAll() {
+  renderCanvas();
+  renderPanel();
+  update();
+}
+
+function describeExcluded() {
+  const parts = [];
+  for (const kind of ["source", "station"]) {
+    const left = SCHEMA[kind]
+      .filter((parameter) => !SUPPORTED[kind].includes(parameter.name))
+      .map((parameter) => parameter.name + (parameter.choices ? ` (${parameter.choices.map((choice) => `"${choice}"`).join(" or ")})` : ""));
+    parts.push(`model.${kind} arguments not edited here: ${left.join(", ")}.`);
+  }
+  document.getElementById("excluded-arguments").textContent = parts.join(" ");
+}
+
+describeExcluded();
+syncSettings();
+renderAll();
+window.flowsimBuilder = {state: () => toJson(), code: generate};
+</script>
+</body>
+</html>

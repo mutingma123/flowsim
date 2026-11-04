@@ -3,6 +3,7 @@
 # results imports the version while this package loads, so it comes first.
 __version__ = "0.3.0"
 
+from flowsim.builder_page import builder
 from flowsim.comparison import Comparison, compare
 from flowsim.distributions import (
     Distribution,
@@ -52,6 +53,7 @@ __all__ = [
     "Viewer",
     "best_fit",
     "beta",
+    "builder",
     "compare",
     "discrete",
     "empirical",
