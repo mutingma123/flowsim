@@ -74,8 +74,8 @@ def main():
             row["scenario"]: [row["mean"], row["lower"], row["upper"]]
             for row in comparison.differences(metric="bullwhip_ratio", stock_point="Factory").to_dicts()
         },
-        "warmup": sorted({run.warmup for experiment in comparison.experiments.values() for run in experiment.runs}),
-        "duration": sorted({run.duration for experiment in comparison.experiments.values() for run in experiment.runs}),
+        "warmup": sorted({run.settings.warmup for experiment in comparison.experiments.values() for run in experiment.runs}),
+        "duration": sorted({run.settings.duration for experiment in comparison.experiments.values() for run in experiment.runs}),
     }
     viewer = ROOT / "output" / "supply" / "viewer.html"
     record_image("orders", shoot(viewer, OUT / "orders.png", selector="#orders", viewport=(900, 900), wait_ready=True))

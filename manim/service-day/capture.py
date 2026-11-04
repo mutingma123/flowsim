@@ -55,9 +55,9 @@ def main():
         }
         for name, experiment in comparison.experiments.items()
     }
-    numbers["drain"] = all(run.drain for experiment in comparison.experiments.values() for run in experiment.runs)
+    numbers["drain"] = all(run.settings.drain for experiment in comparison.experiments.values() for run in experiment.runs)
     numbers["durations"] = sorted(
-        {run.duration for experiment in comparison.experiments.values() for run in experiment.runs},
+        {run.settings.duration for experiment in comparison.experiments.values() for run in experiment.runs},
     )
     # Day 1 of one and two servers, as the saved viewers show the Service queue.
     def choose_service(page):
@@ -78,7 +78,7 @@ def main():
             "replication_max_queue": per_run["max_queue"],
             "replication_mean_queue": per_run["mean_queue"],
             "overtime": run.summary.row(0, named=True)["overtime"],
-            "seed": run.seed,
+            "seed": run.settings.seed,
         }
         record_image(
             f"day_{folder}",

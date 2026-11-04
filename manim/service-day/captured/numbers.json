@@ -1,8 +1,8 @@
 {
   "sources": {
     "manim/service-day/snippets/exercise.py": "11ed6ad47a19bb3af3df960d9a70960651ca9a3a508fa7f683a17db27fb3122a",
-    "examples/models.py": "45afeb67e2c9ff6ee9aa4ffca22e6a5a6d425b3abac7d5894ae8a2dfd49ea4c7",
-    "examples/service_day.py": "22eca59ef857816d3083d287ec0ce52e007bf76df7650ccbbe6b5ea96f325e4d"
+    "examples/models.py": "28ea0ea3804d04b19637076a34359a6d246c03445a492a0d7818642379a18ff5",
+    "examples/service_day.py": "18f807b76a2bad4782b9f2d8513344f33085368d8c90c8a19f39ee67419d6105"
   },
   "images": {
     "decision": {

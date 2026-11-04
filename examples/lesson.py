@@ -7,38 +7,8 @@ app = marimo.App(width="full")
 @app.cell
 def _():
     import marimo as mo
-    from extensions import (
-        DURATIONS,
-        buffered_line,
-        combined_line,
-        peak_service,
-        repairing_machine,
-    )
-    from models import branching_service, deterministic_queue, service_network
-    from service_day import (
-        DAYS,
-        ON_TIME_SHARE,
-        OVERTIME_LIMIT,
-        WAIT_TARGET,
-        staffing_exercise,
-    )
 
-    return (
-        DAYS,
-        DURATIONS,
-        ON_TIME_SHARE,
-        OVERTIME_LIMIT,
-        WAIT_TARGET,
-        branching_service,
-        buffered_line,
-        combined_line,
-        deterministic_queue,
-        mo,
-        peak_service,
-        repairing_machine,
-        service_network,
-        staffing_exercise,
-    )
+    return (mo,)
 
 
 @app.cell
@@ -88,8 +58,29 @@ def _(mo):
 
 
 @app.cell
-def _(mo, servers, service_network):
-    network = service_network(service_capacity=int(servers.value))
+def _(mo, servers):
+    from flowsim import Model, exponential, uniform
+
+    # A model is built from a source, stations, and a route through them.
+    network = Model(time_unit="minutes")
+    _arrivals = network.source(
+        name="Customers",
+        interarrival=exponential(mean=3),
+    )
+    _check_in = network.station(
+        name="Check-in",
+        capacity=1,
+        service_time=uniform(
+            low=1,
+            high=2,
+        ),
+    )
+    _service = network.station(
+        name="Service",
+        capacity=int(servers.value),
+        service_time=exponential(mean=4),
+    )
+    network.route([_arrivals, _check_in, _service, network.exit])
     mo.ui.plotly(network.diagram())
     return (network,)
 
@@ -109,7 +100,7 @@ def _(mo, results):
     mo.vstack(
         [
             mo.md("## Run totals"),
-            mo.ui.table(results.summary),
+            mo.ui.table(results.report()),
             mo.md("## Station performance"),
             mo.ui.table(results.stations),
         ]
@@ -140,6 +131,40 @@ def _(mo, results):
         height="2300px",
     )
     return
+
+
+@app.cell
+def _():
+    from extensions import (
+        DURATIONS,
+        buffered_line,
+        combined_line,
+        peak_service,
+        repairing_machine,
+    )
+    from models import branching_service, deterministic_queue
+    from service_day import (
+        DAYS,
+        ON_TIME_SHARE,
+        OVERTIME_LIMIT,
+        WAIT_TARGET,
+        staffing_exercise,
+    )
+
+    return (
+        DAYS,
+        DURATIONS,
+        ON_TIME_SHARE,
+        OVERTIME_LIMIT,
+        WAIT_TARGET,
+        branching_service,
+        buffered_line,
+        combined_line,
+        deterministic_queue,
+        peak_service,
+        repairing_machine,
+        staffing_exercise,
+    )
 
 
 @app.cell

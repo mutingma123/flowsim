@@ -79,20 +79,18 @@ BUFFER_PLANS = module_constant(OPERATIONS, "BUFFER_PLANS")
 
 
 def sampler_mean(node):
-    """The mean of a constant or of a lambda that draws uniform, gamma, or exponential."""
+    """The mean of a constant or of a named distribution call: uniform, gamma, or exponential."""
     if isinstance(node, ast.Constant):
         return Fraction(str(node.value))
-    call = node.body
-    method = call.func.attr
-    args = [Fraction(str(ast.literal_eval(arg))) for arg in call.args]
-    kwargs = {kw.arg: Fraction(str(ast.literal_eval(kw.value))) for kw in call.keywords}
-    if method == "uniform":
-        return (args[0] + args[1]) / 2
-    if method == "gamma":
+    name = node.func.id
+    kwargs = {kw.arg: Fraction(str(ast.literal_eval(kw.value))) for kw in node.keywords}
+    if name == "uniform":
+        return (kwargs["low"] + kwargs["high"]) / 2
+    if name == "gamma":
         return kwargs["shape"] * kwargs["scale"]
-    if method == "exponential":
-        return kwargs["scale"]
-    raise ValueError(method)
+    if name == "exponential":
+        return kwargs["mean"]
+    raise ValueError(name)
 
 
 _tree = ast.parse("\n".join(LINE_CODE))
@@ -122,18 +120,23 @@ assert SOURCE["interarrival"] == 2 and SOURCE["first_arrival"] == 0
 assert ast.literal_eval(STATIONS["Saw"]["buffer"]) == 0 and STATIONS["Saw"]["overflow"] == "wait"
 # The saw's cutting time is drawn uniformly from this range.
 _saw_call = next(
-    node.body for node in ast.walk(_tree)
-    if isinstance(node, ast.Lambda) and getattr(node.body.func, "attr", None) == "uniform" and STATIONS["Saw"]["mean"] == sampler_mean(node)
+    keyword.value
+    for node in ast.walk(_tree)
+    if isinstance(node, ast.Call) and getattr(node.func, "attr", None) == "station"
+    for keyword in node.keywords
+    if keyword.arg == "service_time" and ast.literal_eval(next(k.value for k in node.keywords if k.arg == "name")) == "Saw"
 )
-SAW_RANGE = tuple(ast.literal_eval(arg) for arg in _saw_call.args)
+assert _saw_call.func.id == "uniform"
+SAW_RANGE = tuple(ast.literal_eval(kw.value) for kw in _saw_call.keywords)
 assert SAW_RANGE == (2.5, 3.5)
 RELEASED = SHIFT // SOURCE["interarrival"]
 MTTF = sampler_mean(BREAKDOWNS["time_to_failure"])
 REPAIR = sampler_mean(BREAKDOWNS["repair_time"])
 FAILURE_CLOCK = ast.literal_eval(BREAKDOWNS["failure_clock"])
 assert (MTTF, REPAIR, FAILURE_CLOCK) == (90, 20, "busy")
-_repair_call = BREAKDOWNS["repair_time"].body
-REPAIR_RANGE = tuple(ast.literal_eval(arg) for arg in _repair_call.args)
+_repair_call = BREAKDOWNS["repair_time"]
+assert _repair_call.func.id == "uniform"
+REPAIR_RANGE = tuple(ast.literal_eval(kw.value) for kw in _repair_call.keywords)
 assert REPAIR_RANGE == (10, 30)
 
 # Average scheduled fitters over the shift, from the staffing list.
@@ -338,19 +341,19 @@ class Part1Line(CodeScene):
         self.say("Every blank follows this one routing. No part is scrapped or reworked.")
         self.pause("routing")
 
-        lines = excerpt(LINE_CODE, "    blanks = model.source(", 12)
+        lines = excerpt(LINE_CODE, "    blanks = model.source(", 15)
         self.say(f"A blank is released every {SOURCE['interarrival']} minutes, {RELEASED} in a {SHIFT}-minute shift.")
-        self.show_code(lines, OPS_NOTE + ", machining_line", top=0.75, size=18)
+        self.show_code(lines, OPS_NOTE + ", machining_line", top=0.8, size=14)
         self.highlight(2, 3)
         self.pause("release")
-        self.say(f"Each lambda rng: draws a random time. The saw takes {SAW_RANGE[0]} to {SAW_RANGE[1]} minutes.")
-        self.highlight(8)
+        self.say(f"Each named distribution draws a random time. The saw takes {SAW_RANGE[0]} to {SAW_RANGE[1]} minutes.")
+        self.highlight(8, 11)
         self.pause("saw-time")
         self.say("A buffer is the waiting space in front of a station. The saw has none.")
-        self.highlight(9)
+        self.highlight(12)
         self.pause("buffer")
         self.say('external_overflow="wait" holds released blanks outside the line. They enter when the saw is free.')
-        self.highlight(10)
+        self.highlight(13)
         self.pause("raw-stock")
         self.say("A finished part blocks its machine while the next buffer is full.")
         self.drop_code()
@@ -374,11 +377,11 @@ class Part2Capacity(CodeScene):
         self.say("It ignores variability, blocking, and filling an empty line. Simulated output falls below it.")
         self.pause("ignores")
 
-        lines = excerpt(LINE_CODE, "    assembly = model.station(", 9)
+        lines = excerpt(LINE_CODE, "    assembly = model.station(", 12)
         self.say(f"Assembly has one fitter from minute {LUNCH[0]} to {LUNCH[1]}, for lunch.")
         self.clear_stage()
         self.show_code(lines, OPS_NOTE + ", machining_line", y=CONTENT_Y, size=22)
-        self.highlight(4, 5)
+        self.highlight(7, 8)
         self.pause("lunch")
         self.say(f"A saved viewer page shows day 1's scheduled fitters, {float(MEAN_FITTERS):.3f} on average.")
         shot = screenshot(HERE, CAPTURED, "resources_assembly", width=11.0, height=5.4)
@@ -387,16 +390,16 @@ class Part2Capacity(CodeScene):
         self.play(FadeIn(shot), run_time=0.6)
         self.pause("fitters")
 
-        lines = excerpt(LINE_CODE, "    breakdowns = (", 9)
+        lines = excerpt(LINE_CODE, "    breakdowns = (", 12)
         self.say(f"A CNC machine fails after {parts(MTTF)} busy minutes on average.")
         self.show_code(lines, OPS_NOTE + ", machining_line", y=CONTENT_Y, size=22, drop=(shot,))
         self.highlight(2)
         self.pause("failures")
         self.say(f"Repair takes {REPAIR_RANGE[0]} to {REPAIR_RANGE[1]} minutes, {parts(REPAIR)} on average. There is no shared repair crew.")
-        self.highlight(3)
+        self.highlight(3, 6)
         self.pause("repair")
         self.say('failure_clock="busy" counts only cutting time toward the next failure.')
-        self.highlight(4)
+        self.highlight(7)
         self.pause("clock")
         self.say(
             f"Minutes {CNC_WINDOW[0]} to {CNC_WINDOW[1]} of day 1, with two buffer spaces each. "

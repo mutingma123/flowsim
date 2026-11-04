@@ -40,29 +40,52 @@ def staffing_exercise(replications: int = DAYS, seed: int = 42):
     )
     # Both targets describe this finite experiment. The 90% requirement is an
     # observed day count, not a confidence bound on a population probability.
-    rows = []
-    intervals = {row["scenario"]: row for row in comparison.intervals().to_dicts()}
-    for servers, name in STAFFING.items():
-        row = intervals[name]
-        runs = comparison.experiments[name].summary
-        on_time = runs.filter(pl.col("overtime") <= OVERTIME_LIMIT).height
-        rows.append(
-            {
-                "scenario": name,
-                "servers": servers,
-                "mean_wait_minutes": row["mean"],
-                "wait_lower": row["lower"],
-                "wait_upper": row["upper"],
-                "days_finished_on_time": on_time,
-                "days": replications,
-                "meets_targets": (
-                    row["mean"] is not None
-                    and row["mean"] <= WAIT_TARGET
-                    and on_time >= math.ceil(ON_TIME_SHARE * replications)
-                ),
-            }
+    on_time = comparison.summary.group_by("scenario", maintain_order=True).agg(
+        (pl.col("overtime") <= OVERTIME_LIMIT)
+        .sum()
+        .cast(pl.Int64)
+        .alias("days_finished_on_time"),
+    )
+    servers = pl.DataFrame(
+        {
+            "scenario": list(STAFFING.values()),
+            "servers": list(STAFFING),
+        },
+    )
+    decision = (
+        comparison.intervals()
+        .join(
+            other=on_time,
+            on="scenario",
+            how="left",
+            maintain_order="left",
         )
-    return comparison, pl.DataFrame(rows)
+        .join(
+            other=servers,
+            on="scenario",
+            how="left",
+            maintain_order="left",
+        )
+        .select(
+            "scenario",
+            "servers",
+            pl.col("mean").alias("mean_wait_minutes"),
+            pl.col("lower").alias("wait_lower"),
+            pl.col("upper").alias("wait_upper"),
+            "days_finished_on_time",
+            pl.lit(replications, dtype=pl.Int64).alias("days"),
+            (
+                (pl.col("mean") <= WAIT_TARGET)
+                & (
+                    pl.col("days_finished_on_time")
+                    >= math.ceil(ON_TIME_SHARE * replications)
+                )
+            )
+            .fill_null(False)
+            .alias("meets_targets"),
+        )
+    )
+    return comparison, decision
 
 
 def main():

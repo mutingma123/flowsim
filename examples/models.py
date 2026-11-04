@@ -1,6 +1,6 @@
 """Small service systems with adjustable capacity."""
 
-from flowsim import Model
+from flowsim import Model, exponential, gamma, uniform
 
 
 def deterministic_queue(capacity: int = 1) -> Model:
@@ -26,17 +26,20 @@ def service_network(service_capacity: int = 2) -> Model:
     model = Model(time_unit="minutes")
     arrivals = model.source(
         name="Customers",
-        interarrival=lambda rng: rng.exponential(scale=3),
+        interarrival=exponential(mean=3),
     )
     check_in = model.station(
         name="Check-in",
         capacity=1,
-        service_time=lambda rng: rng.uniform(1, 2),
+        service_time=uniform(
+            low=1,
+            high=2,
+        ),
     )
     service = model.station(
         name="Service",
         capacity=service_capacity,
-        service_time=lambda rng: rng.exponential(scale=4),
+        service_time=exponential(mean=4),
     )
     model.route([arrivals, check_in, service, model.exit])
     return model
@@ -47,7 +50,7 @@ def branching_service() -> Model:
     model = Model(time_unit="minutes")
     arrivals = model.source(
         name="Customers",
-        interarrival=lambda rng: rng.exponential(scale=3),
+        interarrival=exponential(mean=3),
     )
     triage = model.station(
         name="Triage",
@@ -57,7 +60,7 @@ def branching_service() -> Model:
     routine = model.station(
         name="Routine",
         capacity=2,
-        service_time=lambda rng: rng.gamma(
+        service_time=gamma(
             shape=2,
             scale=2,
         ),
@@ -65,7 +68,10 @@ def branching_service() -> Model:
     specialist = model.station(
         name="Specialist",
         capacity=1,
-        service_time=lambda rng: rng.uniform(5, 8),
+        service_time=uniform(
+            low=5,
+            high=8,
+        ),
     )
     model.route([arrivals, triage])
     model.branch(triage, {routine: 0.7, specialist: 0.3})

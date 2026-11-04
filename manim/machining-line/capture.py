@@ -69,8 +69,8 @@ def main():
             for station in ["Saw", "CNC", "Wash", "Assembly", "Pack"]
         }
     runs = [run for experiment in comparison.experiments.values() for run in experiment.runs]
-    numbers["durations"] = sorted({run.duration for run in runs})
-    numbers["drain"] = sorted({run.drain for run in runs})
+    numbers["durations"] = sorted({run.settings.duration for run in runs})
+    numbers["drain"] = sorted({run.settings.drain for run in runs})
     numbers["replications"] = sorted({len(experiment.runs) for experiment in comparison.experiments.values()})
 
     viewer = ROOT / "output" / "machining" / "viewer.html"

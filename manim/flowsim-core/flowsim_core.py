@@ -181,11 +181,12 @@ CHECK_IN_SERVERS = call_keywords(NETWORK_CODE, "station")["capacity"]
 _network = ast.parse("\n".join(NETWORK_CODE)).body[0]
 SERVICE_SERVERS = ast.literal_eval(_network.args.defaults[0])
 assert _network.args.args[0].arg == "service_capacity"
-# Each random time is a lambda that draws from the run's generator; NumPy's exponential
-# scale is a mean (README "A first model").
-NETWORK_SERVICE_MEAN = int(re.search(r"service_time=lambda rng: rng\.exponential\(scale=(\d+)\)", "\n".join(NETWORK_CODE))[1])
+# Each random time is a named distribution that draws from the run's generator;
+# exponential(mean=...) is the mean duration, not an arrival rate.
+NETWORK_SERVICE_MEAN = int(re.search(r"service_time=exponential\(mean=(\d+)\)", "\n".join(NETWORK_CODE))[1])
 assert NETWORK_SERVICE_MEAN == 4
-readme_states("NumPy's exponential `scale` is a mean duration, not an arrival rate.")
+readme_states("`exponential(mean=3)` is a named distribution, i.e., an object that draws a new random duration each time FlowSim calls it.")
+assert "rng.exponential(scale=self.mean)" in (ROOT / "flowsim" / "distributions.py").read_text()
 REPS = CAPTURED["replications"]
 SERVICE_RUNS = REPS["service_runs"]
 assert len(SERVICE_RUNS) == DAYS == REPS["runs"] == REPS["seeds_distinct"] == 20
@@ -697,14 +698,15 @@ class Part5Replications(CoreScene):
         )
         self.pause("network")
         # The def line carries service_capacity's default of 2; the body keeps its indent.
-        _start = NETWORK_CODE.index("    arrivals = model.source(")
-        network = [NETWORK_CODE[0], *NETWORK_CODE[_start : _start + 14]]
+        # The check-in and service stations fit the 15-line panel; the source is not shown.
+        _start = NETWORK_CODE.index("    check_in = model.station(")
+        network = [NETWORK_CODE[0], *NETWORK_CODE[_start : _start + 13]]
         self.say(
-            f"Each lambda rng: draws a new random time. exponential(scale={NETWORK_SERVICE_MEAN}) "
+            f"Each named distribution draws a new random time. exponential(mean={NETWORK_SERVICE_MEAN}) "
             f"has mean {NETWORK_SERVICE_MEAN} minutes.",
         )
         self.show_code(network, SOURCE_NOTE + ", service_network", top=2.3, size=20)
-        self.highlight(13)
+        self.highlight(12)
         self.pause("random")
         self.say(f"A replication is one independent run with its own draws, here {DAYS} days.")
         self.show_code(lines, "manim/flowsim-core/snippets/replications.py", top=2.3, size=22)

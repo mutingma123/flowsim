@@ -78,7 +78,7 @@ def main():
         "mean_flow_time": totals["mean_flow_time"],
         "throughput": totals["throughput"],
         "end_time": totals["end_time"],
-        "warmup": results.warmup,
+        "warmup": results.settings.warmup,
     }
     viewer = ROOT / "output" / "queue" / "viewer.html"
     shots = {
@@ -142,7 +142,7 @@ def main():
         "checkin_runs": column(checkin_runs, "mean_wait"),
         "checkin_interval": [checkin["mean"], checkin["lower"], checkin["upper"]],
         "confidence": service["confidence"],
-        "seeds_distinct": len({run.seed for run in experiment.runs}),
+        "seeds_distinct": len({run.settings.seed for run in experiment.runs}),
     }
 
     # Paired comparison of one, two, and three Service servers, against two.
@@ -154,7 +154,7 @@ def main():
         name: column(experiment.summary.sort("replication"), "mean_total_wait")
         for name, experiment in comparison.experiments.items()
     }
-    seeds = {name: [run.seed for run in experiment.runs] for name, experiment in comparison.experiments.items()}
+    seeds = {name: [run.settings.seed for run in experiment.runs] for name, experiment in comparison.experiments.items()}
     numbers["compare"] = {
         "runs": scenario_runs,
         "same_seeds": len({tuple(value) for value in seeds.values()}) == 1,

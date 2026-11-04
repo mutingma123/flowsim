@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from flowsim import Model, compare
+from flowsim import Model, compare, exponential, gamma, uniform
 
 # Machining line buffer plans, as waiting spaces in front of CNC, Wash,
 # Assembly, and Pack. The last two plans hold the same eight spaces in different
@@ -37,7 +37,10 @@ def machining_line(
     saw = model.station(
         name="Saw",
         capacity=1,
-        service_time=lambda rng: rng.uniform(2.5, 3.5),
+        service_time=uniform(
+            low=2.5,
+            high=3.5,
+        ),
         buffer=0,
         external_overflow="wait",
     )
@@ -45,8 +48,11 @@ def machining_line(
     # buffer requires one, so the later stations state "reject".
     breakdowns = (
         {
-            "time_to_failure": lambda rng: rng.exponential(scale=90),
-            "repair_time": lambda rng: rng.uniform(10, 30),
+            "time_to_failure": exponential(mean=90),
+            "repair_time": uniform(
+                low=10,
+                high=30,
+            ),
             "failure_clock": "busy",
         }
         if failures
@@ -55,7 +61,7 @@ def machining_line(
     cnc = model.station(
         name="CNC",
         capacity=2,
-        service_time=lambda rng: rng.gamma(
+        service_time=gamma(
             shape=4,
             scale=1.5,
         ),
@@ -73,7 +79,10 @@ def machining_line(
     assembly = model.station(
         name="Assembly",
         capacity=2,
-        service_time=lambda rng: rng.uniform(5, 8),
+        service_time=uniform(
+            low=5,
+            high=8,
+        ),
         staffing=[(0, 2), (240, 1), (300, 2)],
         shift_end="finish",
         buffer=buffers[2],
@@ -82,7 +91,10 @@ def machining_line(
     pack = model.station(
         name="Pack",
         capacity=1,
-        service_time=lambda rng: rng.uniform(2.5, 3.5),
+        service_time=uniform(
+            low=2.5,
+            high=3.5,
+        ),
         buffer=buffers[3],
         external_overflow="reject",
     )
@@ -107,7 +119,10 @@ def cross_dock(doors: int = 6, yard: int = 8) -> Model:
     gate = model.station(
         name="Gate",
         capacity=2,
-        service_time=lambda rng: rng.uniform(2, 5),
+        service_time=uniform(
+            low=2,
+            high=5,
+        ),
         buffer=0,
         external_overflow="wait",
     )
@@ -117,7 +132,7 @@ def cross_dock(doors: int = 6, yard: int = 8) -> Model:
     unload = model.station(
         name="Unload",
         capacity=doors,
-        service_time=lambda rng: rng.gamma(
+        service_time=gamma(
             shape=6,
             scale=6,
         ),
@@ -129,17 +144,23 @@ def cross_dock(doors: int = 6, yard: int = 8) -> Model:
     sort = model.station(
         name="Sort",
         capacity=1,
-        service_time=lambda rng: rng.uniform(4, 6),
+        service_time=uniform(
+            low=4,
+            high=6,
+        ),
         buffer=4,
         external_overflow="reject",
-        time_to_failure=lambda rng: rng.exponential(scale=240),
-        repair_time=lambda rng: rng.uniform(15, 45),
+        time_to_failure=exponential(mean=240),
+        repair_time=uniform(
+            low=15,
+            high=45,
+        ),
         failure_clock="busy",
     )
     load = model.station(
         name="Outbound load",
         capacity=4,
-        service_time=lambda rng: rng.gamma(
+        service_time=gamma(
             shape=6,
             scale=5,
         ),
@@ -149,7 +170,10 @@ def cross_dock(doors: int = 6, yard: int = 8) -> Model:
     putaway = model.station(
         name="Put-away",
         capacity=2,
-        service_time=lambda rng: rng.uniform(15, 25),
+        service_time=uniform(
+            low=15,
+            high=25,
+        ),
     )
     model.route([trucks, gate, unload, sort])
     model.branch(sort, {load: 0.75, putaway: 0.25})

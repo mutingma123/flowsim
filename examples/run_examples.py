@@ -58,11 +58,10 @@ def main():
             replications=12,
             seed=42,
         )
-        interval = (
-            trials.intervals("mean_wait")
-            .filter(pl.col("station") == "Service")
-            .with_columns(pl.lit(capacity).alias("servers"))
-        )
+        interval = trials.intervals(
+            "mean_wait",
+            station="Service",
+        ).with_columns(pl.lit(capacity).alias("servers"))
         comparison.append(interval)
         if capacity == 2:
             trials.intervals("mean_wait").write_csv(

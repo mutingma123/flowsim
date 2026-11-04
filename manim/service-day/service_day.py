@@ -80,10 +80,10 @@ EXERCISE = ROOT / "examples" / "service_day.py"
 # The two-stage network's distributions, read from service_network's own lines.
 NETWORK_CODE = function_lines(MODELS, "service_network")
 _network = "\n".join(NETWORK_CODE)
-INTERARRIVAL_MEAN = int(re.search(r"interarrival=lambda rng: rng\.exponential\(scale=(\d+)\)", _network)[1])
-_low, _high = (int(v) for v in re.search(r"rng\.uniform\((\d+), (\d+)\)", _network).groups())
+INTERARRIVAL_MEAN = int(re.search(r"interarrival=exponential\(mean=(\d+)\)", _network)[1])
+_low, _high = (int(v) for v in re.search(r"uniform\(\s+low=(\d+),\s+high=(\d+),\s+\)", _network).groups())
 CHECK_IN_MEAN = Fraction(_low + _high, 2)
-SERVICE_MEAN = int(re.search(r"service_time=lambda rng: rng\.exponential\(scale=(\d+)\)", _network)[1])
+SERVICE_MEAN = int(re.search(r"service_time=exponential\(mean=(\d+)\)", _network)[1])
 CHECK_IN_SERVERS = int(re.search(r'name="Check-in",\n\s+capacity=(\d+)', _network)[1])
 
 # Offered load per server is the arrival rate times the mean service time, divided by the
@@ -224,15 +224,15 @@ class Part1Predict(CodeScene):
         note_y = row.get_bottom()[1] - 0.4
         arrival_note = label(f"every {INTERARRIVAL_MEAN} min on average", size=20).move_to([row[0].get_x(), note_y, 0])
         check_note = label(f"{_low} to {_high} min, {CHECK_IN_SERVERS} server", size=20).move_to([row[1].get_x(), note_y, 0])
-        lines = excerpt(NETWORK_CODE, "    arrivals = model.source(", 9)
+        lines = excerpt(NETWORK_CODE, "    arrivals = model.source(", 12)
         self.say(
-            f"lambda rng: draws random arrival gaps, {INTERARRIVAL_MEAN} minutes on average, all day.",
+            f"exponential(mean={INTERARRIVAL_MEAN}) draws random arrival gaps, all day. The mean is {INTERARRIVAL_MEAN} minutes.",
         )
-        self.show_code(lines, MODELS_NOTE, top=-0.05, size=18, add=(arrival_note, check_note))
+        self.show_code(lines, MODELS_NOTE, top=0.0, size=14, add=(arrival_note, check_note))
         self.highlight(2)
         self.pause("arrivals")
         self.say(f"Check-in takes {_low} to {_high} minutes, any time in that range equally likely.")
-        self.highlight(7)
+        self.highlight(7, 10)
         self.pause("check-in")
 
         service_note = label(f"{SERVICE_MEAN} min on average", size=20).move_to([row[2].get_x(), note_y, 0])

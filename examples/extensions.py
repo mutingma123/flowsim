@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from flowsim import Model
+from flowsim import Model, exponential, uniform
 
 # Operating durations of the extension examples, used by main() and the lesson.
 DURATIONS = {
@@ -22,7 +22,7 @@ def peak_service(shift_end: str = "finish") -> Model:
     service = model.station(
         name="Service",
         capacity=3,
-        service_time=lambda rng: rng.exponential(scale=4),
+        service_time=exponential(mean=4),
         staffing=[(0, 1), (90, 3), (180, 0), (210, 3), (300, 1), (480, 3)],
         shift_end=shift_end,
     )
@@ -60,14 +60,20 @@ def repairing_machine(failure_clock: str = "available") -> Model:
     model = Model()
     arrivals = model.source(
         name="Parts",
-        interarrival=lambda rng: rng.exponential(scale=5),
+        interarrival=exponential(mean=5),
     )
     machine = model.station(
         name="Machine",
         capacity=2,
-        service_time=lambda rng: rng.uniform(4, 8),
-        time_to_failure=lambda rng: rng.exponential(scale=30),
-        repair_time=lambda rng: rng.uniform(3, 8),
+        service_time=uniform(
+            low=4,
+            high=8,
+        ),
+        time_to_failure=exponential(mean=30),
+        repair_time=uniform(
+            low=3,
+            high=8,
+        ),
         failure_clock=failure_clock,
     )
     model.route([arrivals, machine, model.exit])
@@ -86,7 +92,10 @@ def combined_line(
     assembly = model.station(
         name="Assembly",
         capacity=2,
-        service_time=lambda rng: rng.uniform(1, 2),
+        service_time=uniform(
+            low=1,
+            high=2,
+        ),
         staffing=[(0, 1), (50, 2), (120, 1), (200, 2)],
         shift_end=shift_end,
         buffer=3,
@@ -95,11 +104,17 @@ def combined_line(
     finishing = model.station(
         name="Finishing",
         capacity=1,
-        service_time=lambda rng: rng.uniform(2, 4),
+        service_time=uniform(
+            low=2,
+            high=4,
+        ),
         buffer=2,
         external_overflow="reject",
-        time_to_failure=lambda rng: rng.exponential(scale=35),
-        repair_time=lambda rng: rng.uniform(2, 5),
+        time_to_failure=exponential(mean=35),
+        repair_time=uniform(
+            low=2,
+            high=5,
+        ),
         failure_clock=failure_clock,
     )
     model.route([arrivals, assembly, finishing, model.exit])
