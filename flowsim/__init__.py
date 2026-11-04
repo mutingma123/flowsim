@@ -13,23 +13,37 @@ from flowsim.distributions import (
     exponential,
     gamma,
     lognormal,
+    negative_binomial,
     normal,
     pert,
     poisson,
+    shifted,
     triangular,
     uniform,
     weibull,
 )
-from flowsim.fitting import FAMILIES, best_fit, sampler
+from flowsim.fitting import (
+    ALL_FAMILIES,
+    COUNT_FAMILIES,
+    FAMILIES,
+    Fit,
+    Fits,
+    best_fit,
+    fit_all,
+)
 from flowsim.model import Model, Node
 from flowsim.policies import moving_average, order_up_to
 from flowsim.results import Experiment, Results
 
 __all__ = [
+    "ALL_FAMILIES",
+    "COUNT_FAMILIES",
     "FAMILIES",
     "Comparison",
     "Distribution",
     "Experiment",
+    "Fit",
+    "Fits",
     "Model",
     "Node",
     "Results",
@@ -40,14 +54,16 @@ __all__ = [
     "empirical",
     "erlang",
     "exponential",
+    "fit_all",
     "gamma",
     "lognormal",
     "moving_average",
+    "negative_binomial",
     "normal",
     "order_up_to",
     "pert",
     "poisson",
-    "sampler",
+    "shifted",
     "triangular",
     "uniform",
     "weibull",

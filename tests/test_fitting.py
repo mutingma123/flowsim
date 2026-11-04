@@ -1,132 +1,356 @@
-"""Distribution fitting checked against hand-calculated fits and KS statistics."""
+"""Distribution fitting checked against hand-calculated fits, AIC, and KS."""
+
+import json
+import math
+import warnings
 
 import numpy as np
+import plotly.graph_objects as go
 import polars as pl
 import pytest
 import scipy.stats as st
 
-from flowsim import FAMILIES, Model, best_fit, sampler
+import flowsim
+from flowsim import FAMILIES, Fit, Model, best_fit, fit_all
+from flowsim.distributions import exponential, normal, poisson
+
+# The README example's data.
+README_DATA = np.random.default_rng(7).gamma(
+    shape=4,
+    scale=1.5,
+    size=200,
+)
 
 
 def test_uniform_fit_and_ks_match_a_hand_calculation():
-    # The uniform MLE spans the sample, so loc = 2 and scale = 10 - 2 = 8. The CDF at
-    # 2, 3, 5, 10 is 0, 1/8, 3/8, 1 against empirical steps of 1/4, 1/2, 3/4, 1, so
-    # the largest gap is 1/2 - 1/8 = 3/4 - 3/8 = 3/8.
-    fits = best_fit(
+    # The uniform MLE spans the sample, so loc = 2 and scale = 10 - 2 = 8, i.e.,
+    # low = 2 and high = 10. The CDF at 2, 3, 5, 10 is 0, 1/8, 3/8, 1 against
+    # empirical steps of 1/4, 1/2, 3/4, 1, so the largest gap is
+    # 1/2 - 1/8 = 3/4 - 3/8 = 3/8.
+    fits = fit_all(
         data=[2.0, 3.0, 5.0, 10.0],
         families=["uniform"],
     )
-    row = fits.row(0, named=True)
-    assert row["rank"] == 1
-    assert row["family"] == "uniform"
-    assert row["params"] == pytest.approx([2, 8])
-    assert row["ks"] == pytest.approx(0.375)
-    assert (row["lower"], row["upper"]) == pytest.approx((2, 10))
+    fit = fits.best
+    assert fit.family == "uniform"
+    assert fit.params == pytest.approx({"low": 2, "high": 10})
+    assert fit.ks == pytest.approx(0.375)
+    row = fits.table.row(0, named=True)
+    assert (row["rank"], row["low"], row["high"]) == (1, 2, 10)
 
 
-def test_ranking_is_sorted_by_the_ks_statistic_of_each_fit():
-    data = np.random.default_rng(3).gamma(
-        shape=2,
-        scale=3,
-        size=200,
+def test_exponential_fit_matches_a_hand_calculation():
+    # At location zero the exponential MLE mean is the sample mean, 12 / 4 = 3.
+    # The log-likelihood is -n ln(3) - sum(x) / 3 = -4 ln(3) - 4, and one fitted
+    # parameter gives AIC = 2 - 2 (-4 ln 3 - 4) = 2 + 8 ln 3 + 8. The CDF
+    # 1 - exp(-x/3) at 1, 2, 3, 6 is 0.283, 0.487, 0.632, 0.865 against steps
+    # of 1/4 to 1, so the largest gap is 1 - exp(-1/3) - 0 at x = 1.
+    fit = fit_all(
+        data=[1.0, 2.0, 3.0, 6.0],
+        families=["exponential"],
+    ).best
+    assert fit.distribution == exponential(mean=3)
+    assert fit.params == pytest.approx({"mean": 3})
+    assert fit.aic == pytest.approx(2 + 8 * math.log(3) + 8)
+    assert fit.ks == pytest.approx(1 - math.exp(-1 / 3))
+    assert fit.p_negative == 0
+
+
+def test_poisson_fit_matches_a_hand_calculation():
+    # The Poisson MLE mean is the sample mean, 8 / 4 = 2. The log-likelihood is
+    # sum(x ln 2 - 2 - ln x!) = 8 ln 2 - 8 - ln(0! 1! 2! 5!) = 8 ln 2 - 8 - ln 240,
+    # so AIC = 2 - 16 ln 2 + 16 + 2 ln 240.
+    fits = fit_all(
+        data=[0, 1, 2, 5],
+        families=["poisson"],
+        discrete=True,
     )
-    fits = best_fit(data)
-    assert fits.columns == ["rank", "family", "ks", "params", "lower", "upper"]
-    assert set(fits["family"]) <= set(FAMILIES)
-    assert fits["rank"].to_list() == list(range(1, fits.height + 1))
-    assert fits["ks"].is_sorted()
-    for row in fits.iter_rows(named=True):
-        fitted = getattr(st, row["family"])(*row["params"])
-        assert row["ks"] == pytest.approx(st.kstest(data, fitted.cdf).statistic)
+    fit = fits.best
+    assert fit.distribution == poisson(mean=2)
+    assert fit.aic == pytest.approx(2 - 16 * math.log(2) + 16 + 2 * math.log(240))
+    assert fit.ks is None
+    assert fits.table["ks"].to_list() == [None]
 
 
-def test_the_ranking_is_the_same_on_every_call():
-    data = np.random.default_rng(4).lognormal(size=150)
-    assert best_fit(data).equals(best_fit(pl.Series(data)))
-
-
-def test_a_family_whose_fit_fails_is_left_out(monkeypatch):
-    def fail(*args, **kwargs):
-        raise RuntimeError("bad start")
-
-    monkeypatch.setattr(st.expon, "fit", fail)
-    fits = best_fit(
-        data=[1.0, 2.0, 4.0, 7.0],
-        families=["expon", "uniform"],
+def test_aic_counts_only_free_parameters_and_sets_the_rank():
+    fits = fit_all(README_DATA)
+    table = fits.table
+    assert table.columns == [
+        "rank",
+        "family",
+        "description",
+        "mean",
+        "sd",
+        "p_negative",
+        "aic",
+        "ks",
+        "shape",
+        "scale",
+    ]
+    assert set(table["family"]) == set(FAMILIES)
+    assert table["rank"].to_list() == [1, 2, 3, 4, 5]
+    assert table["aic"].is_sorted()
+    # Gamma at location zero fits shape and scale, so k = 2.
+    params = st.gamma.fit(README_DATA, floc=0)
+    loglik = st.gamma.logpdf(README_DATA, *params).sum()
+    gamma_fit = fits.pick("gamma")
+    assert gamma_fit.aic == pytest.approx(2 * 2 - 2 * loglik)
+    assert gamma_fit.params == pytest.approx({"shape": params[0], "scale": params[2]})
+    assert gamma_fit.ks == pytest.approx(
+        st.kstest(README_DATA, st.gamma(*params).cdf).statistic
     )
-    assert fits["family"].to_list() == ["uniform"]
-    with pytest.raises(ValueError, match="No family"):
+    assert fits.table.equals(fit_all(pl.Series(README_DATA)).table)
+
+
+def test_the_readme_example_winner_cannot_draw_a_negative_value():
+    fits = fit_all(README_DATA)
+    assert fits.best.family == "gamma"
+    assert fits.best.p_negative <= 1e-6
+    # Every family fitted at location zero has no mass below zero.
+    for fit in fits:
+        if fit.family != "normal":
+            assert fit.p_negative == 0
+    # With a free location, the lognormal starts below zero, so best skips it.
+    shifted = fit_all(
+        README_DATA,
+        shifted=True,
+    )
+    lognormal = shifted.pick("lognormal")
+    assert lognormal.params["by"] < 0
+    assert lognormal.p_negative > 1e-6
+    assert shifted.best.family != "lognormal"
+    assert shifted.best.p_negative <= 1e-6
+
+
+def test_best_skips_a_normal_fit_that_can_draw_negative_values():
+    # Normal data with mean 3 and sd 1: the normal ranks first by AIC, but a
+    # draw falls below zero with chance near Phi(-3) = 0.0013.
+    data = np.random.default_rng(1).normal(
+        loc=3,
+        scale=1,
+        size=100,
+    )
+    fits = fit_all(data)
+    first = fits.pick(1)
+    assert first.family == "normal"
+    assert first.p_negative > 1e-6
+    assert fits.best is fits.pick(2)
+    with pytest.raises(ValueError, match=r"empirical\(data\)"):
         best_fit(
-            data=[1.0, 2.0, 4.0, 7.0],
-            families=["expon"],
+            data,
+            families=["normal"],
         )
 
 
 @pytest.mark.parametrize(
-    "data",
-    [[1.0], [1.0, float("nan")], [[1.0, 2.0], [3.0, 4.0]]],
+    ("family", "draw", "size", "minimum"),
+    [
+        # Measured: 33 of 40 seeds pick gamma, 31 of 40 pick exponential.
+        ("gamma", lambda rng, n: rng.gamma(shape=4, scale=1.5, size=n), 200, 25),
+        ("exponential", lambda rng, n: rng.exponential(scale=2, size=n), 100, 25),
+    ],
 )
-def test_fitting_data_is_validated(data):
-    with pytest.raises(ValueError, match="Fitting data"):
-        best_fit(data)
+def test_seeded_samples_recover_their_family(family, draw, size, minimum):
+    wins = sum(
+        best_fit(draw(np.random.default_rng(seed), size)).family == family
+        for seed in range(40)
+    )
+    assert wins >= minimum
+
+
+def test_a_family_whose_fit_fails_is_reported(monkeypatch):
+    def fail(*args, **kwargs):
+        raise RuntimeError("bad start")
+
+    monkeypatch.setattr(st.expon, "fit", fail)
+    fits = fit_all(
+        data=[1.0, 2.0, 4.0, 7.0],
+        families=["exponential", "uniform"],
+    )
+    assert [fit.family for fit in fits] == ["uniform"]
+    assert fits.failed.rows() == [("exponential", "RuntimeError: bad start")]
+    assert "Did not fit: exponential (RuntimeError: bad start)" in repr(fits)
+    with pytest.raises(ValueError, match="No family.*bad start"):
+        fit_all(
+            data=[1.0, 2.0, 4.0, 7.0],
+            families=["exponential"],
+        )
+
+
+def test_zero_values_warn_and_fail_the_families_that_start_at_zero():
+    with pytest.warns(
+        UserWarning,
+        match=r"values look rounded; record finer times or use empirical\(data\)",
+    ):
+        fits = fit_all([0.0, 1.2, 2.5, 3.1, 4.7, 0.8])
+    failed = dict(fits.failed.rows())
+    assert set(failed) == {"gamma", "lognormal", "weibull"}
+    assert all("zero" in reason for reason in failed.values())
+    assert [fit.family for fit in fits] == ["exponential", "normal"]
+    with pytest.raises(ValueError, match="lognormal did not fit"):
+        fits.pick("lognormal")
+
+
+def test_ties_warn_but_distinct_values_do_not():
+    # Two of ten values (20%) equal another value.
+    with pytest.warns(UserWarning, match="values look rounded"):
+        fit_all([1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        fit_all(README_DATA)
+
+
+def test_pick_by_name_and_rank():
+    fits = fit_all(README_DATA)
+    assert len(fits) == 5
+    assert fits.pick("gamma") is fits.best
+    assert fits.pick(1) is fits.best
+    assert list(fits)[1] is fits.pick(2)
+    assert best_fit(README_DATA).distribution == fits.best.distribution
+    assert isinstance(fits.best, Fit)
+    with pytest.raises(ValueError, match="No fit named 'beta'.*gamma, lognormal"):
+        fits.pick("beta")
+    for bad in (0, 6, True, 1.0):
+        with pytest.raises(ValueError, match="rank from 1 to 5"):
+            fits.pick(bad)
+
+
+def test_fits_display_without_refitting():
+    fits = fit_all(README_DATA)
+    text = repr(fits)
+    assert text.startswith("Fits to 200 durations: mean 5.509")
+    assert "Gamma(shape=4.39, scale=1.26)" in text
+    assert "(skipped by .best)" in text
+    assert "fits.pick(" in text
+    assert "<table>" in fits._repr_html_()
+    assert repr(fits.best) == "Gamma(shape=4.39, scale=1.26)  AIC=926.3  KS=0.053"
+    figure = fits.plot()
+    assert isinstance(figure, go.Figure)
+    # Data histogram and empirical CDF, plus a density and a CDF per fit.
+    assert len(figure.data) == 2 + 2 * len(fits)
+
+
+def run_with(service_time, seed=8):
+    model = Model()
+    source = model.source(
+        name="Jobs",
+        interarrival=lambda rng: rng.exponential(scale=6),
+        limit=30,
+    )
+    station = model.station(
+        name="Machine",
+        capacity=1,
+        service_time=service_time,
+    )
+    model.route([source, station, model.exit])
+    return model.run(
+        duration=300,
+        seed=seed,
+        drain=True,
+    )
+
+
+@pytest.mark.parametrize("shifted", [False, True])
+def test_a_fit_drives_a_station_exactly_like_its_distribution(shifted, tmp_path):
+    fit = best_fit(
+        README_DATA,
+        shifted=shifted,
+    )
+    fitted = run_with(fit)
+    assert fitted.visits.height == 30
+    assert fitted.visits.equals(run_with(fit.distribution).visits)
+    assert not fitted.visits.equals(run_with(fit, seed=9).visits)
+    fitted.export(tmp_path)
+    metadata = json.loads((tmp_path / "metadata.json").read_text())
+    machine = metadata["definitions"]["Machine"]
+    assert machine["service_time"] == fit.distribution.spec()
+    assert machine["reconstructible"] is True
+    spec = dict(machine["service_time"])
+    assert getattr(flowsim, spec.pop("name"))(**spec) == fit.distribution
+
+
+def test_counts_recover_poisson_and_prefer_negative_binomial_when_overdispersed():
+    # Measured: Poisson data pick Poisson in 39 of 40 seeds, and negative
+    # binomial data with variance 18 > mean 6 pick it in 40 of 40.
+    poisson_wins = sum(
+        fit_all(
+            np.random.default_rng(seed).poisson(lam=6, size=100),
+            discrete=True,
+        ).best.family
+        == "poisson"
+        for seed in range(40)
+    )
+    assert poisson_wins >= 30
+    counts = np.random.default_rng(1).negative_binomial(
+        n=3,
+        p=0.4,
+        size=300,
+    )
+    fits = fit_all(
+        counts,
+        discrete=True,
+    )
+    assert fits.best.family == "negative_binomial"
+    # The negative binomial MLE also sets the mean to the sample mean.
+    assert fits.best.mean == pytest.approx(counts.mean())
+    assert fits.best.sd**2 > fits.best.mean
+    assert "Fits to 300 counts" in repr(fits)
+
+
+def test_counts_without_extra_variance_report_the_negative_binomial_as_failed():
+    # Mean 4 and variance 4/7 (dividing by n), so there is no overdispersion.
+    fits = fit_all(
+        [3, 4, 5, 4, 3, 5, 4],
+        discrete=True,
+    )
+    assert [fit.family for fit in fits] == ["poisson"]
+    ((family, reason),) = fits.failed.rows()
+    assert family == "negative_binomial"
+    assert "not above their mean" in reason
 
 
 @pytest.mark.parametrize(
-    "families", ["norm", [], ["norm", "poisson"], ["not_a_family"]]
+    "data",
+    [[1.0], [1.0, float("nan")], [[1.0, 2.0], [3.0, 4.0]], [1.0, -2.0], ["a", "b"]],
+)
+def test_fitting_data_is_validated(data):
+    with pytest.raises(ValueError, match="Fitting data"):
+        fit_all(data)
+
+
+def test_count_data_must_be_whole_numbers():
+    with pytest.raises(ValueError, match="whole-number counts"):
+        fit_all(
+            [1.5, 2.0],
+            discrete=True,
+        )
+    with pytest.raises(ValueError, match="shifted=True"):
+        fit_all(
+            [1, 2],
+            shifted=True,
+            discrete=True,
+        )
+
+
+@pytest.mark.parametrize(
+    "families",
+    ["normal", [], ["normal", "poisson"], ["not_a_family"], ["norm"]],
 )
 def test_family_names_are_validated(families):
     with pytest.raises(ValueError, match="famil"):
-        best_fit(
+        fit_all(
             data=[1.0, 2.0, 3.0],
             families=families,
         )
 
 
-def test_sampler_rejects_invalid_parameters():
-    with pytest.raises(ValueError, match="not valid for norm"):
-        sampler(
-            family="norm",
-            params=[0, -1],
+def test_count_family_names_are_validated():
+    with pytest.raises(ValueError, match="Unknown families.*counts"):
+        fit_all(
+            data=[1, 2, 3],
+            families=["gamma"],
+            discrete=True,
         )
-    with pytest.raises(ValueError, match="continuous distribution"):
-        sampler(
-            family="binom",
-            params=[3, 0.5],
-        )
-
-
-def test_sampler_drives_a_station_with_draws_from_the_fitted_range():
-    # Customers arrive every 10 minutes and a uniform(1, 3) service ends before the
-    # next arrival, so no one waits and every service time lies in [1, 3].
-    def run(seed):
-        model = Model()
-        source = model.source(
-            name="Jobs",
-            interarrival=10,
-            first_arrival=0,
-            limit=20,
-        )
-        station = model.station(
-            name="Machine",
-            capacity=1,
-            service_time=sampler(
-                family="uniform",
-                params=[1, 2],
-            ),
-        )
-        model.route([source, station, model.exit])
-        return model.run(
-            duration=300,
-            seed=seed,
-        ).visits
-
-    visits = run(seed=8)
-    assert visits.height == 20
-    assert visits["wait_time"].to_list() == [0.0] * 20
-    assert visits["service_time"].is_between(1, 3).all()
-    assert visits["service_time"].n_unique() == 20
-    assert visits.equals(run(seed=8))
-    assert not visits.equals(run(seed=9))
 
 
 def test_a_negative_draw_stops_the_run():
@@ -140,9 +364,9 @@ def test_a_negative_draw_stops_the_run():
     station = model.station(
         name="Machine",
         capacity=1,
-        service_time=sampler(
-            family="norm",
-            params=[-5, 0.001],
+        service_time=normal(
+            mean=-5,
+            sd=0.001,
         ),
     )
     model.route([source, station, model.exit])
@@ -151,3 +375,60 @@ def test_a_negative_draw_stops_the_run():
             duration=30,
             seed=1,
         )
+
+
+def test_free_endpoint_fits_below_zero_are_kept_as_shifted_distributions():
+    # Seed 1 exponential data give a triangular fit whose start is below zero.
+    data = np.random.default_rng(1).exponential(
+        scale=2,
+        size=100,
+    )
+    fits = fit_all(
+        data,
+        families=["triangular", "beta", "uniform"],
+    )
+    assert fits.failed.height == 0
+    triangle = fits.pick("triangular")
+    assert triangle.params["by"] < 0
+    # The shifted fit is the same distribution SciPy fitted, so their means,
+    # sds, and chances of a negative draw agree.
+    assert triangle.mean == pytest.approx(triangle._frozen.mean())
+    assert triangle.sd == pytest.approx(triangle._frozen.std())
+    assert triangle.p_negative == pytest.approx(triangle._frozen.cdf(0))
+    assert triangle.p_negative > 0
+
+
+def test_negative_binomial_matches_a_direct_likelihood_maximization():
+    counts = (
+        np.random.default_rng(1)
+        .negative_binomial(
+            n=5,
+            p=5 / 55,
+            size=200,
+        )
+        .astype(float)
+    )
+    fit = fit_all(
+        counts,
+        discrete=True,
+    ).pick("negative_binomial")
+    mean = counts.mean()
+
+    def loglik(size):
+        return st.nbinom.logpmf(counts, size, size / (size + mean)).sum()
+
+    # The fitted size r gives variance mean + mean^2 / r, and a small step
+    # either way lowers the log-likelihood.
+    size = mean**2 / (fit.sd**2 - mean)
+    best = loglik(size)
+    assert fit.aic == pytest.approx(4 - 2 * best)
+    assert best >= loglik(size * 1.001)
+    assert best >= loglik(size / 1.001)
+
+
+def test_count_plot_grid_stays_bounded_for_huge_counts():
+    figure = fit_all(
+        [100_000_000.0, 100_000_003.0, 100_000_010.0],
+        discrete=True,
+    ).plot()
+    assert max(len(trace.x) for trace in figure.data) <= 1000

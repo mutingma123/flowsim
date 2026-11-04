@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from flowsim.distributions import Distribution
+from flowsim.distributions import Distribution, Shifted
 from flowsim.results import (
     SUPPLIER,
     Results,
@@ -113,17 +113,23 @@ class _Same:
         return isinstance(other, _Same) and other.value is self.value
 
 
+# Modules whose Distribution classes have a spec() that rebuilds them.
+_BUILT_IN = ("flowsim.distributions", "flowsim.fitting")
+
+
 def _spec(value: object) -> object:
     """Encode a duration for export: a number, a distribution's repr, or a marker."""
     if value is None:
         return None
     # A built-in distribution records its constructor and full-precision
-    # arguments. Any other callable, including a user's own subclass, cannot be
-    # rebuilt from the export.
-    if (
-        isinstance(value, Distribution)
-        and type(value).__module__ == Distribution.__module__
-    ):
+    # arguments, and a fit records its fitted distribution's. Any other
+    # callable, including a user's own subclass, cannot be rebuilt from the
+    # export.
+    if isinstance(value, Shifted):
+        # A shift is rebuildable only when the distribution it shifts is.
+        inner = _spec(value.distribution)
+        return value.spec() if isinstance(inner, dict) else inner
+    if isinstance(value, Distribution) and type(value).__module__ in _BUILT_IN:
         return value.spec()
     if isinstance(value, Mapping):
         return {kind: _spec(item) for kind, item in value.items()}

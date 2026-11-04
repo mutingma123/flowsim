@@ -814,3 +814,164 @@ def discrete(
         values=tuple(float(x) for x in v),
         probabilities=tuple(float(x) for x in w / w.sum()),
     )
+
+
+@dataclass(frozen=True, repr=False)
+class NegativeBinomial(Distribution):
+    mean: float
+    sd: float
+    _names = ("mean", "sd")
+
+    @property
+    def _n(self) -> float:
+        # Variance = mean + mean^2 / n, so n = mean^2 / (variance - mean).
+        return self.mean**2 / (self.sd**2 - self.mean)
+
+    @property
+    def _p(self) -> float:
+        # NumPy counts failures before the n-th success with success chance p,
+        # whose mean n (1 - p) / p equals mean when p = mean / variance.
+        return self.mean / self.sd**2
+
+    def __call__(self, rng):
+        return float(rng.negative_binomial(n=self._n, p=self._p))
+
+    def describe(self) -> str:
+        return (
+            f"Negative binomial with mean {_fmt(self.mean)} and sd {_fmt(self.sd)}: "
+            "whole-number counts, more variable than Poisson."
+        )
+
+    def spec(self) -> dict:
+        return {"name": "negative_binomial", "mean": self.mean, "sd": self.sd}
+
+
+def negative_binomial(*, mean: float, sd: float) -> NegativeBinomial:
+    """Negative binomial demand, a whole-number count more variable than Poisson.
+
+    A Poisson count has variance equal to its mean. The negative binomial adds
+    variability, so its sd must satisfy sd**2 > mean. Draws use NumPy's
+    ``rng.negative_binomial(n, p)`` with n = mean**2 / (sd**2 - mean) and
+    p = mean / sd**2, i.e., the number of failures before the n-th success.
+
+    Parameters
+    ----------
+    mean : float
+        Mean count, greater than zero.
+    sd : float
+        Standard deviation of the count, with sd**2 greater than mean.
+
+    Example
+    -------
+    >>> negative_binomial(mean=20, sd=8)
+    NegativeBinomial(mean=20, sd=8)
+    """
+    example = "negative_binomial(mean=20, sd=8)"
+    m, s = _real("negative_binomial", example, mean=mean, sd=sd)
+    if m <= 0 or s <= 0 or s**2 <= m:
+        raise _bad(
+            "negative_binomial",
+            "mean > 0 and sd**2 > mean (use poisson(mean=...) when sd**2 = mean)",
+            example,
+            {"mean": mean, "sd": sd},
+        )
+    return NegativeBinomial(mean=m, sd=s)
+
+
+@dataclass(frozen=True, repr=False)
+class Shifted(Distribution):
+    distribution: Distribution
+    by: float
+
+    @property
+    def mean(self) -> float:
+        return self.distribution.mean + self.by
+
+    @property
+    def sd(self) -> float:
+        return self.distribution.sd
+
+    def __call__(self, rng):
+        return float(self.by + self.distribution(rng))
+
+    def describe(self) -> str:
+        text = (
+            f"{self.distribution.describe()} Every draw is then shifted by "
+            f"{_fmt(self.by)}."
+        )
+        if self.by < 0:
+            text += " A draw can be negative, and a negative draw stops the run."
+        return text
+
+    def spec(self) -> dict:
+        return {
+            "name": "shifted",
+            "distribution": self.distribution.spec(),
+            "by": self.by,
+        }
+
+    def __repr__(self) -> str:
+        return f"Shifted({self.distribution!r}, by={_fmt(self.by)})"
+
+
+def shifted(distribution: Distribution | dict, *, by: float) -> Shifted:
+    """Add a fixed amount to every draw of another distribution.
+
+    A shift models a minimum time, e.g., a 2-minute setup followed by an
+    exponential task. ``fit_all(data, shifted=True)`` returns shifted fits.
+
+    Parameters
+    ----------
+    distribution : Distribution or dict
+        A FlowSim distribution, or its ``spec()`` dictionary, which lets an
+        exported specification rebuild the shifted distribution.
+    by : float
+        Amount added to every draw. A negative shift can produce negative
+        draws, which stop a run.
+
+    Example
+    -------
+    >>> shifted(exponential(mean=4), by=2)
+    Shifted(Exponential(mean=4), by=2)
+    """
+    example = "shifted(exponential(mean=4), by=2)"
+    if isinstance(distribution, dict):
+        arguments = dict(distribution)
+        name = arguments.pop("name", None)
+        if name not in _CONSTRUCTORS:
+            raise _bad(
+                "shifted",
+                "a distribution or the spec() of one",
+                example,
+                {"distribution": distribution},
+            )
+        distribution = _CONSTRUCTORS[name](**arguments)
+    if not isinstance(distribution, Distribution):
+        raise _bad(
+            "shifted",
+            "a FlowSim distribution such as exponential(mean=4)",
+            example,
+            {"distribution": distribution},
+        )
+    (b,) = _real("shifted", example, by=by)
+    return Shifted(distribution=distribution, by=b)
+
+
+# Constructors by spec name, so shifted() can rebuild an exported inner spec.
+_CONSTRUCTORS = {
+    "beta": beta,
+    "discrete": discrete,
+    "empirical": empirical,
+    "erlang": erlang,
+    "exponential": exponential,
+    "gamma": gamma,
+    "lognormal": lognormal,
+    "negative_binomial": negative_binomial,
+    "normal": normal,
+    "pert": pert,
+    "poisson": poisson,
+    "shifted": shifted,
+    "triangular": triangular,
+    "uniform": uniform,
+    "weibull": weibull,
+}

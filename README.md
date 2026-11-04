@@ -323,27 +323,30 @@ unknown outcome with zero.
 
 ## Fitting durations to data
 
-`best_fit(data)` fits eight common families to a sample of durations by
-maximum likelihood with SciPy and ranks them by the one-sample
-Kolmogorov-Smirnov (KS) statistic, i.e., the largest vertical gap between the
-data's empirical CDF and the fitted CDF. The statistic uses no random draws, so
-the ranking is the same on every run. `sampler(family, params)` turns one row of
-that table into a duration sampler for any station or source.
+`fit_all(data)` fits five families to a sample of durations by maximum
+likelihood: exponential, gamma, lognormal, and Weibull, each starting at zero
+since a duration cannot be negative, and normal. It ranks the fits by AIC, i.e.,
+2k minus twice the log-likelihood, where k counts the fitted parameters, so a
+family with more parameters must earn its extra flexibility. Each fit also
+shows the Kolmogorov-Smirnov (KS) statistic, i.e., the largest vertical gap
+between the data's empirical CDF and the fitted CDF, and `p_negative`, the
+fitted chance of a draw below zero. The fits use no random draws, so the
+ranking is the same on every run.
 
 ```python
 import numpy as np
 
-from flowsim import Model, best_fit, sampler
+from flowsim import Model, best_fit, fit_all
 
 observed = np.random.default_rng(7).gamma(
     shape=4,
     scale=1.5,
     size=200,
 )
-fits = best_fit(observed)
-print(fits.select("rank", "family", "ks", "lower", "upper"))
+fits = fit_all(observed)
+print(fits)
+print(fits.table.select("rank", "family", "mean", "sd", "aic", "ks"))
 
-best = fits.row(0, named=True)
 model = Model(time_unit="minutes")
 jobs = model.source(
     name="Jobs",
@@ -352,10 +355,7 @@ jobs = model.source(
 machine = model.station(
     name="Machine",
     capacity=1,
-    service_time=sampler(
-        family=best["family"],
-        params=best["params"],
-    ),
+    service_time=fits.best,
 )
 model.route([jobs, machine, model.exit])
 fitted_run = model.run(
@@ -363,19 +363,35 @@ fitted_run = model.run(
     seed=42,
 )
 print(fitted_run.stations.select("station", "mean_wait", "utilization"))
+print(best_fit(observed))
 ```
 
-`FAMILIES` lists the eight SciPy names (`norm`, `lognorm`, `uniform`, `triang`,
-`expon`, `gamma`, `weibull_min`, and `beta`), which cover symmetric data, a
-minimum, mode, and maximum estimated without data, interarrival times,
-right-skewed durations, and bounded data. Passing `families=` searches a
-different list of SciPy continuous distributions. A family whose fit fails is
-left out of the table rather than ranked last. The `lower` and `upper` columns
-are the fitted support. A finite `upper` (e.g., uniform, triangular, or a
-bounded beta) means no simulated duration can exceed it, which removes the long
-right tail that a stress test is meant to examine. The sampler does not clip
-draws, so a family with negative support near zero (e.g., a normal fitted to
-short times) can produce a negative duration, and the run stops with an error.
+`fits.best` is the top-ranked fit whose chance of a negative draw is at most
+one in a million, so a normal fitted to short times is skipped rather than
+allowed to stop a run with a negative duration. A fit is itself a distribution:
+it works as `service_time=` or `interarrival=`, draws exactly what its fitted
+distribution draws (e.g., `gamma(shape=4.39, scale=1.26)`), and lists its
+parameters by name in `fit.params`. `best_fit(data)` returns `fits.best` in one
+call. `fits.pick("lognormal")` or `fits.pick(2)` chooses another fit by family
+name or rank, `fits.table` lists every fit with its mean, sd, AIC, KS, and
+named parameters, `fits.failed` lists each family that did not fit and why, and
+`fits.plot()` draws the fitted densities over a histogram of the data beside
+the fitted and empirical CDFs. The ranking compares only the candidate
+families, so a first rank does not show that a family fits well; the plot is
+the check.
+
+`FAMILIES` is the default search. Passing `families=` fits a different list,
+and `ALL_FAMILIES` adds uniform, triangular, and beta, which are fitted only
+when named because their fitted endpoints hug the sample's minimum and maximum,
+so they win on data from unrelated families and never draw beyond the observed
+range. `shifted=True` also fits a minimum time (a location) for the four
+families that otherwise start at zero. Times recorded to the nearest minute
+produce ties and exact zeros, and a warning says the values look rounded. A
+zero value leaves gamma, lognormal, and Weibull starting at zero without a
+finite likelihood, so they appear in `fits.failed`. When no family fits,
+`empirical(data)` resamples the observed values instead. For whole-number
+demand counts, `fit_all(counts, discrete=True)` fits Poisson and negative
+binomial distributions, the second for counts more variable than Poisson.
 
 ## Model features
 

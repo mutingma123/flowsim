@@ -47,6 +47,11 @@ def test_means_and_sds_match_hand_calculations():
         # discrete([0, 10], [1, 3]): p = 0.25, 0.75; mean 7.5;
         # var 0.25 * 56.25 + 0.75 * 6.25 = 18.75.
         (flowsim.discrete([0, 10], weights=[1, 3]), 7.5, math.sqrt(18.75)),
+        # negative_binomial(mean=6, sd=3): mean and sd as given; variance 9
+        # exceeds the mean, so n = 36 / (9 - 6) = 12 and p = 6 / 9.
+        (flowsim.negative_binomial(mean=6, sd=3), 6, 3),
+        # shifted(exponential(mean=4), by=2): mean 4 + 2, sd unchanged at 4.
+        (flowsim.shifted(flowsim.exponential(mean=4), by=2), 6, 4),
     ]
     for distribution, mean, sd in cases:
         assert distribution.mean == pytest.approx(mean), distribution
@@ -87,6 +92,14 @@ def test_draws_equal_the_matching_numpy_calls():
         (
             flowsim.discrete([1, 2, 5], weights=[2, 2, 1]),
             lambda r: [1.0, 2.0, 5.0][r.choice(3, p=[0.4, 0.4, 0.2])],
+        ),
+        (
+            flowsim.negative_binomial(mean=6, sd=3),
+            lambda r: float(r.negative_binomial(n=12, p=6 / 9)),
+        ),
+        (
+            flowsim.shifted(flowsim.exponential(mean=4), by=2),
+            lambda r: 2 + r.exponential(scale=4),
         ),
     ]
     for distribution, by_hand in cases:
@@ -140,6 +153,13 @@ def test_repr_and_describe():
     assert repr(flowsim.uniform(low=1, high=2)) == "Uniform(low=1, high=2)"
     assert repr(flowsim.gamma(shape=2, scale=3)) == "Gamma(shape=2, scale=3)"
     assert repr(flowsim.erlang(k=3, mean=6)) == "Erlang(k=3, mean=6)"
+    assert repr(flowsim.negative_binomial(mean=20, sd=8)) == (
+        "NegativeBinomial(mean=20, sd=8)"
+    )
+    assert repr(flowsim.shifted(flowsim.exponential(mean=4), by=2)) == (
+        "Shifted(Exponential(mean=4), by=2)"
+    )
+    assert "negative" in flowsim.shifted(flowsim.exponential(mean=4), by=-1).describe()
     assert repr(flowsim.empirical([1, 2, 6])) == (
         "Empirical(n=3, mean=3, min=1, max=6)"
     )
@@ -169,6 +189,10 @@ def test_bad_parameters_name_the_constructor():
         ("poisson", lambda: flowsim.poisson(mean=float("nan"))),
         ("discrete", lambda: flowsim.discrete([1, 2], weights=[0, 0])),
         ("discrete", lambda: flowsim.discrete([1, 2], weights=[1])),
+        # sd**2 = 4 equals the mean, which is Poisson, not negative binomial.
+        ("negative_binomial", lambda: flowsim.negative_binomial(mean=4, sd=2)),
+        ("shifted", lambda: flowsim.shifted(lambda rng: 1.0, by=1)),
+        ("shifted", lambda: flowsim.shifted(flowsim.poisson(mean=2), by=None)),
     ]
     for name, call in bad_calls:
         with pytest.raises(ValueError, match=f"^{name} needs"):
@@ -260,6 +284,9 @@ def test_export_metadata_records_distributions(tmp_path):
         flowsim.empirical([0, 1, 3, 4]),
         flowsim.poisson(mean=20),
         flowsim.discrete([1, 2, 5], weights=[2, 2, 1]),
+        flowsim.negative_binomial(mean=20, sd=8),
+        flowsim.shifted(flowsim.gamma(shape=2, scale=3), by=1.5),
+        flowsim.shifted(flowsim.discrete([1, 2], weights=[1, 3]), by=-0.25),
     ],
 )
 def test_spec_rebuilds_the_same_distribution_through_json(distribution):
@@ -310,3 +337,22 @@ def test_huge_equal_weights_normalize_to_equal_probabilities():
 def test_booleans_are_not_numbers_for_sequence_constructors(build):
     with pytest.raises(ValueError, match="not True or False"):
         build()
+
+
+def test_a_shift_of_a_custom_distribution_exports_as_a_function(tmp_path):
+    class Constant(Distribution):
+        mean = 1.0
+        sd = 0.0
+
+        def __call__(self, rng):
+            return 1.0
+
+        def describe(self):
+            return "Always one."
+
+    spec = timed_model(flowsim.shifted(Constant(), by=1)).run(
+        duration=20,
+        seed=1,
+    )
+    assert spec.definitions["Desk"]["service_time"] == "<function>"
+    assert spec.definitions["Desk"]["reconstructible"] is False
