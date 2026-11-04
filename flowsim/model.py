@@ -573,11 +573,15 @@ class Model:
                 raise ValueError(
                     "Scheduled staffing requires shift_end='finish' or 'pause'."
                 )
-            staff = validate_schedule(
-                points=staffing,
-                label="Staffing schedule",
-                counts=True,
-                maximum=count,
+            # With counts=True every level is already an int.
+            staff = tuple(
+                (time, int(level))
+                for time, level in validate_schedule(
+                    points=staffing,
+                    label="Staffing schedule",
+                    counts=True,
+                    maximum=count,
+                )
             )
         elif shift_end is not None:
             raise ValueError("shift_end requires a staffing schedule.")
@@ -1224,7 +1228,7 @@ class Model:
             if unlinked_stock or unlinked_demand:
                 raise ValueError(f"{node.name!r} is not in a supply chain.")
         if self._supply is not None:
-            self._validate_production()
+            self._validate_production(self._supply)
             return
         sources = [node for node in self._nodes.values() if node.kind == "source"]
         if not sources:
@@ -1254,11 +1258,11 @@ class Model:
         for source in sources:
             self._check_types(source)
 
-    def _validate_production(self) -> None:
+    def _validate_production(self, supply: SupplyChain) -> None:
         """Check that the top stage's jobs reach every station and return to it."""
-        top = self._supply.stock_points[-1]
+        top = supply.stock_points[-1]
         stations = [node for node in self._nodes.values() if node.kind == "station"]
-        for node in self._supply.stock_points:
+        for node in supply.stock_points:
             if node.lead_time is not None and node.name in self._graph:
                 raise ValueError(
                     f"{node.name!r} has a route, and only a stock point with "
@@ -1331,13 +1335,13 @@ class Model:
                     continue
                 reached.add(name)
                 node = self._nodes[name]
-                typed = isinstance(node.service_time, Mapping)
-                if typed and kind is None:
+                service_time = node.service_time
+                if isinstance(service_time, Mapping) and kind is None:
                     raise ValueError(
                         f"{name!r} sets service times by customer type, and "
                         f"customers from {source.name!r} have no type."
                     )
-                if typed and kind not in node.service_time:
+                if isinstance(service_time, Mapping) and kind not in service_time:
                     raise ValueError(
                         f"{name!r} has no service time for type {kind!r}, which "
                         f"can reach it from {source.name!r}."

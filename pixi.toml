@@ -10,6 +10,7 @@ lint = "ruff check flowsim examples tests"
 format = "ruff format flowsim examples tests"
 format-check = "ruff format --check flowsim examples tests"
 notebook-check = "marimo check --strict examples/lesson.py"
+typecheck = "pyright flowsim"
 check = { depends-on = ["test", "lint", "format-check", "notebook-check"] }
 demo = "python -m examples.run_examples"
 notebook = "marimo edit examples/lesson.py"
@@ -38,6 +39,8 @@ pytest = ">=9.1.1,<10"
 ruff = ">=0.17.0,<0.18"
 setuptools = ">=84.0.0,<85"
 pytest-timeout = ">=2.4.0,<3"
+pyright = ">=1.1.414,<2"
+nodejs = ">=20"
 
 [pypi-dependencies]
 classroom-flowsim = { path = ".", editable = true }

@@ -7,13 +7,18 @@ accepts a sampler. The engine supplies its own generator, so a distribution
 never holds random state.
 """
 
+# Each Distribution subclass supplies mean and sd as a dataclass field or a
+# read-only property. Pyright rejects both against the base's declaration, and
+# a base property would block the frozen dataclass from setting a field.
+# pyright: reportIncompatibleVariableOverride=false
+
 from __future__ import annotations
 
 import html
 import math
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, is_dataclass
 from numbers import Real
 
 import numpy as np
@@ -114,6 +119,8 @@ class Distribution(ABC):
         >>> flowsim.exponential(mean=4).spec()
         {'name': 'exponential', 'mean': 4.0}
         """
+        # Every concrete distribution is a frozen dataclass.
+        assert is_dataclass(self)
         arguments = {}
         for field in fields(self):
             value = getattr(self, field.name)

@@ -69,7 +69,16 @@ def station_menu(figure: go.Figure, stations: list[str]) -> None:
         {
             "label": label(station),
             "method": "update",
-            "args": [{"visible": [trace.meta == station for trace in figure.data]}],
+            # Plotly's own code makes Pyright infer figure.data as a Figure,
+            # but it is the tuple of traces.
+            "args": [
+                {
+                    "visible": [
+                        trace.meta == station  # pyright: ignore[reportAttributeAccessIssue]
+                        for trace in figure.data
+                    ]
+                }
+            ],
         }
         for station in stations
     ]
@@ -97,7 +106,8 @@ def layout_layers(model: Model) -> list[list[str]]:
         steps = {name: steps.get(name, 0) for name in others}
         layers = [
             [name for name in others if steps[name] == step]
-            for step in range(max(steps.values(), default=-1) + 1)
+            # Unweighted path lengths are whole numbers of steps.
+            for step in range(int(max(steps.values(), default=-1)) + 1)
         ]
     return [*layers, [model.exit.name]]
 
@@ -272,7 +282,7 @@ def chosen_stations(result: Results, station: str | None) -> list[str]:
     A run without stations draws empty station figures, as the viewer needs,
     and the public plot methods call require_stations first.
     """
-    names = list(result.settings.capacities)
+    names = list(result._capacities)
     if station is None:
         return names
     require_stations(result)
@@ -553,11 +563,20 @@ def plot_customer(result: Results, customer_id: int) -> go.Figure:
     return figure
 
 
+def figure_data(figure: go.Figure) -> dict:
+    """Return a figure as the plain JSON data the viewer pages embed."""
+    text = figure.to_json()
+    # Plotly returns None only for a JSON engine it does not know, and it
+    # rejects one before that point.
+    assert text is not None
+    return json.loads(text)
+
+
 def viewer_html(result: Results) -> str:
     figures = {
-        "queues": json.loads(plot_queue(result).to_json()),
-        "waits": json.loads(plot_wait(result).to_json()),
-        "utilization": json.loads(plot_utilization(result).to_json()),
+        "queues": figure_data(plot_queue(result)),
+        "waits": figure_data(plot_wait(result)),
+        "utilization": figure_data(plot_utilization(result)),
     }
     if any(
         definition["staffing"] is not None
@@ -565,7 +584,7 @@ def viewer_html(result: Results) -> str:
         or definition["failures_enabled"]
         for definition in result._definitions.values()
     ):
-        figures["resources"] = json.loads(plot_resources(result).to_json())
+        figures["resources"] = figure_data(plot_resources(result))
     payload = {
         "figures": figures,
         "customers": result.customers.to_dicts(),
@@ -620,13 +639,16 @@ def warmup_line(figure: go.Figure, result: Results) -> None:
 def plot_orders(result: Results) -> go.Figure:
     """Plot consumer demand and every stage's orders, which shows the bullwhip."""
     names = chosen_stock_points(result, None)
+    # chosen_stock_points raises for a run without a supply chain.
+    supply = result._supply
+    assert supply is not None
     figure = go.Figure()
     retailer = result.inventory.filter(pl.col("stock_point") == names[0])
     figure.add_trace(
         go.Scatter(
             x=retailer.get_column("time").to_list(),
             y=retailer.get_column("demand").to_list(),
-            name=label(result._supply["chain"][0]),
+            name=label(supply["chain"][0]),
             mode="lines",
             line={"color": GRAY, "width": 2, "dash": "dot"},
         )
@@ -652,10 +674,12 @@ def plot_orders(result: Results) -> go.Figure:
     # to the periods after warm-up. Autoscaling restores the full range.
     measured = result.inventory.filter(pl.col("time") >= result.settings.warmup)
     if result.settings.warmup > 0 and not measured.is_empty():
-        top = max(
-            measured.get_column("order_quantity").max(),
-            measured.get_column("demand").max(),
-        )
+        top = measured.select(
+            pl.max_horizontal(
+                pl.col("order_quantity").max(),
+                pl.col("demand").max(),
+            )
+        ).item()
         figure.update_yaxes(range=[0, 1.05 * top])
     return figure
 
@@ -703,8 +727,8 @@ def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure
 
 def supply_viewer_html(result: Results) -> str:
     figures = {
-        "orders": json.loads(plot_orders(result).to_json()),
-        "inventory": json.loads(plot_inventory(result).to_json()),
+        "orders": figure_data(plot_orders(result)),
+        "inventory": figure_data(plot_inventory(result)),
     }
     # A top stage that produces adds its stations, whose customers are jobs.
     if result.settings.capacities:
@@ -714,12 +738,15 @@ def supply_viewer_html(result: Results) -> str:
             hovertemplate=f"%{{x:.2f}} {label(result.settings.time_unit)}"
             "<br>%{y} jobs<extra>%{fullData.name}</extra>"
         )
-        figures["queues"] = json.loads(queues.to_json())
-        figures["utilization"] = json.loads(plot_utilization(result).to_json())
+        figures["queues"] = figure_data(queues)
+        figures["utilization"] = figure_data(plot_utilization(result))
+    # plot_orders above raises for a run without a supply chain.
+    supply = result._supply
+    assert supply is not None
     payload = {
         "figures": figures,
-        "chain": result._supply["chain"],
-        "period": result._supply["period"],
+        "chain": supply["chain"],
+        "period": supply["period"],
         "stock_points": result.stock_points.to_dicts(),
         "inventory": result.inventory.to_dicts(),
         "shipments": result.shipments.to_dicts(),

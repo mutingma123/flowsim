@@ -139,10 +139,15 @@ class _Server:
 
     def failures(self):
         node = self.station.node
+        # __init__ starts this process only for a station with failures, and
+        # Model.station requires repair_time alongside time_to_failure.
+        time_to_failure = node.time_to_failure
+        repair_time = node.repair_time
+        assert time_to_failure is not None and repair_time is not None
         while True:
             cycle_start = self.run.scheduler.now
             lifetime = sample(
-                distribution=node.time_to_failure,
+                distribution=time_to_failure,
                 rng=self.failure_rng,
                 label=f"Time to failure at {node.name!r}, server {self.id}",
                 positive=True,
@@ -160,7 +165,7 @@ class _Server:
             self.pulse()
             self.run.observe(node.name)
             repair = sample(
-                distribution=node.repair_time,
+                distribution=repair_time,
                 rng=self.repair_rng,
                 label=f"Repair time at {node.name!r}, server {self.id}",
             )
@@ -333,10 +338,15 @@ class _Station:
         else:
             # Model.validate checks that every type reaching the station has a
             # rank. The ticket goes after any of equal rank.
+            def rank(waiting: _Ticket) -> float:
+                kind = waiting.customer.customer_type
+                assert kind is not None
+                return ranks[kind]
+
             bisect.insort(
                 a=self.waiting,
                 x=ticket,
-                key=lambda waiting: ranks[waiting.customer.customer_type],
+                key=rank,
             )
         if self.node.patience is not None and not ticket.patience_started:
             self.start_patience(ticket)
@@ -401,6 +411,7 @@ class _Station:
                 ticket.server = idle
                 idle.ticket = ticket
                 visit = ticket.visit
+                assert visit is not None  # place() records the visit.
                 visit.server_id = idle.id
                 visit.service_start = float(self.run.scheduler.now)
                 visit.wait_time = self.run.scheduler.now - visit.arrival_time
@@ -418,23 +429,31 @@ class _Station:
         self.run.observe(self.node.name)
 
     def work(self, ticket: _Ticket):
+        # dispatch() assigns the server and place() records the visit.
         server = ticket.server
+        visit = ticket.visit
+        assert server is not None and visit is not None
         yield from server.count_down(
-            remaining=ticket.visit.service_time,
+            remaining=visit.service_time,
             running=lambda: server.phase == Phase.PROCESSING,
         )
-        ticket.visit.service_end = float(self.run.scheduler.now)
+        visit.service_end = float(self.run.scheduler.now)
         ticket.finished.succeed()
         server.sync_phase()
         self.run.observe(self.node.name)
 
     def release(self, ticket: _Ticket) -> None:
-        ticket.visit.departure_time = float(self.run.scheduler.now)
-        ticket.visit.blocked_time = self.run.scheduler.now - ticket.visit.service_end
-        ticket.customer.total_blocked += ticket.visit.blocked_time
-        ticket.server.ticket = None
-        ticket.server.sync_phase()
-        ticket.server.pulse()
+        # Only a ticket whose service finished in work() is released.
+        server = ticket.server
+        visit = ticket.visit
+        assert server is not None and visit is not None
+        assert visit.service_end is not None
+        visit.departure_time = float(self.run.scheduler.now)
+        visit.blocked_time = self.run.scheduler.now - visit.service_end
+        ticket.customer.total_blocked += visit.blocked_time
+        server.ticket = None
+        server.sync_phase()
+        server.pulse()
         self.dispatch()
 
     def check_drain(self) -> None:

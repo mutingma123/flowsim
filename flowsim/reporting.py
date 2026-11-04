@@ -85,7 +85,11 @@ def locations(
     covers the named location or, when none is named, every one in definition
     order. A metric that the model cannot measure raises Inapplicable.
     """
-    stations = list(experiment.settings.capacities)
+    # A run records its capacities, and only a comparison's shared settings
+    # hold None.
+    capacities = experiment.settings.capacities
+    assert capacities is not None
+    stations = list(capacities)
     stock_points = experiment.stock_point_names
     # Every supply chain has a stock point, and no service network has one.
     error = inapplicable(
@@ -104,7 +108,7 @@ def locations(
     else:
         names, chosen, kind = stock_points, stock_point, "stock point"
     if chosen is None:
-        return names
+        return [*names]
     if chosen not in names:
         raise unknown(
             kind=kind,
@@ -518,6 +522,7 @@ def page(
         title += f" at {places[0]}"
     differences = ""
     if changes is not None:
+        assert reference is not None  # Comparison.report passes both.
         changes_html = changes.to_html(
             full_html=False,
             include_plotlyjs=False,

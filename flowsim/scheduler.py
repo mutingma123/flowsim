@@ -158,6 +158,8 @@ class Scheduler:
     def step(self) -> None:
         self.now, _, _, event = heappop(self.queue)
         callbacks, event.callbacks = event.callbacks, None
+        # An event is queued once, so it still holds its callbacks here.
+        assert callbacks is not None
         for callback in callbacks:
             callback(event)
 

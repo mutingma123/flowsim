@@ -1721,19 +1721,21 @@ def interval_estimate(values: np.ndarray, confidence: float) -> dict:
     values = values[np.isfinite(values)]
     count = len(values)
     mean = float(values.mean()) if count else None
-    half_width = None
+    lower = upper = None
     # Estimates have the metric's units. Standard error divides by sqrt(runs).
-    if count >= 2:
+    if mean is not None and count >= 2:
         half_width = float(
             t.ppf((1 + confidence) / 2, df=count - 1)
             * values.std(ddof=1)
             / np.sqrt(count)
         )
+        lower = mean - half_width
+        upper = mean + half_width
     return {
         "observed_runs": count,
         "mean": mean,
-        "lower": None if half_width is None else mean - half_width,
-        "upper": None if half_width is None else mean + half_width,
+        "lower": lower,
+        "upper": upper,
     }
 
 
@@ -1948,6 +1950,14 @@ class Results:
             "model.experiment(...) and call experiment.plot()."
         )
         raise missing_attribute(self, name, hints)
+
+    @property
+    def _capacities(self) -> Mapping[str, int]:
+        # A run's settings always hold its capacities. Only a comparison's
+        # shared settings hold None.
+        capacities = self.settings.capacities
+        assert capacities is not None
+        return capacities
 
     def __repr__(self) -> str:
         return display_text(*self._display())
@@ -2186,8 +2196,8 @@ class Results:
         stations = (
             pl.DataFrame(
                 data={
-                    "station": list(self.settings.capacities),
-                    "capacity": list(self.settings.capacities.values()),
+                    "station": list(self._capacities),
+                    "capacity": list(self._capacities.values()),
                 },
                 schema={"station": pl.String, "capacity": pl.Int64},
             )
@@ -2259,6 +2269,9 @@ class Results:
             .sum()
             .alias("presence")
         ).item()
+        # A run's settings always record its end time.
+        end_time = self.settings.end_time
+        assert end_time is not None
         summary = pl.DataFrame(
             {
                 "arrivals": [self.customers.height],
@@ -2289,8 +2302,8 @@ class Results:
                     eligible.height - completed_at_close - abandoned_at_close
                 ],
                 "after_close_completions": [completed - completed_at_close],
-                "end_time": [self.settings.end_time],
-                "overtime": [self.settings.end_time - self.settings.duration],
+                "end_time": [end_time],
+                "overtime": [end_time - self.settings.duration],
                 "measurement_arrivals": [measurement_arrivals],
                 # A rejection happens at arrival, so both counts use the event's
                 # own time in [warmup, duration), as measurement_completions does.
@@ -2413,7 +2426,7 @@ class Results:
         -------
         >>> results.report().filter(pl.col("scope") == "system")
         """
-        stations = list(self.settings.capacities)
+        stations = list(self._capacities)
         stock_points = self.stock_points.get_column("stock_point").to_list()
         rows = []
         for names, column, table, places in [
@@ -2699,7 +2712,7 @@ class Results:
             "drain": self.settings.drain,
             "warmup": self.settings.warmup,
             "seed": self.settings.seed,
-            "capacities": dict(self.settings.capacities),
+            "capacities": dict(self._capacities),
             "definitions": self._definitions,
             # A typed edge lists each type that may take it, with its probability.
             "routes": [

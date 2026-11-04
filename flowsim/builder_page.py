@@ -69,7 +69,7 @@ def _bounds(description: str) -> dict:
     return {}
 
 
-def _annotation(function: object, parameter: inspect.Parameter) -> object:
+def _annotation(function: types.FunctionType, parameter: inspect.Parameter) -> object:
     """Evaluate one parameter's annotation, which modules store as a string."""
     annotation = parameter.annotation
     if isinstance(annotation, str):
@@ -105,7 +105,9 @@ def _kind(annotation: object) -> tuple[str, list | None]:
     return "other", None
 
 
-def _parameters(function: object, skip: tuple[str, ...] = ("self",)) -> list[dict]:
+def _parameters(
+    function: types.FunctionType, skip: tuple[str, ...] = ("self",)
+) -> list[dict]:
     """Describe each parameter: name, kind, default, choices, and bounds."""
     described = _parameter_docs(function)
     result = []
@@ -129,7 +131,7 @@ def _parameters(function: object, skip: tuple[str, ...] = ("self",)) -> list[dic
     return result
 
 
-def _example(function: object) -> dict:
+def _example(function: types.FunctionType) -> dict:
     """Return the keyword values of the first call in the docstring's Example."""
     doc = inspect.getdoc(function) or ""
     for line in doc.splitlines():
@@ -151,7 +153,7 @@ def _call_keywords(source: str) -> dict | None:
     return {item.arg: ast.literal_eval(item.value) for item in node.keywords}
 
 
-def _duration_constructors() -> list:
+def _duration_constructors() -> list[types.FunctionType]:
     """Return the named duration constructors, in definition order.
 
     A duration constructor is a public function in flowsim.distributions that

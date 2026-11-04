@@ -5,6 +5,11 @@ AIC, and returns a ``Fits`` table. ``best_fit(data)`` returns the winner, a
 ``Fit`` that drives a station or source like any FlowSim distribution.
 """
 
+# Each Distribution subclass supplies mean and sd as a dataclass field or a
+# read-only property. Pyright rejects both against the base's declaration, and
+# a base property would block the frozen dataclass from setting a field.
+# pyright: reportIncompatibleVariableOverride=false
+
 from __future__ import annotations
 
 import html
@@ -783,13 +788,17 @@ def _fit_count(values: np.ndarray, family: str) -> Fit:
             method="bounded",
             options={"xatol": 1e-10},
         )
-        if not search.success or search.x > bounds[1] - 1e-3:
+        # SciPy types the OptimizeResult loosely, so Pyright does not see x.
+        best = float(search.x)  # pyright: ignore[reportAttributeAccessIssue]
+        if not search.success or best > bounds[1] - 1e-3:
             raise _NoFit("the likelihood has no interior maximum for these counts")
-        size = math.exp(search.x)
+        size = math.exp(best)
         frozen = st.nbinom(size, size / (size + mean))
         distribution = negative_binomial(mean=mean, sd=math.sqrt(mean + mean**2 / size))
         free = 2
-    loglik = float(np.sum(frozen.logpmf(values)))
+    # SciPy types a frozen count distribution as continuous or discrete, so
+    # Pyright does not see logpmf.
+    loglik = float(np.sum(frozen.logpmf(values)))  # pyright: ignore[reportAttributeAccessIssue]
     return Fit(
         family=family,
         distribution=distribution,
