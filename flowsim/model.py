@@ -310,7 +310,9 @@ class Model:
         service_time is one duration, or a mapping from customer type to the
         duration for that type. priority maps each customer type to a rank. A
         lower rank leaves the waiting line first, and equal ranks keep the order
-        customers joined it. Service is never interrupted.
+        customers joined it. A higher-priority customer never interrupts a
+        service in progress, while a staffing schedule with shift_end='pause'
+        and server failures can pause it.
 
         patience is one duration, or a mapping from customer type to duration,
         after which a customer who has not started service leaves the network.
@@ -756,6 +758,14 @@ class Model:
         for source in sources:
             reachable.add(source.name)
             reachable.update(nx.descendants(self._graph, source.name))
+        # A reached node with no route out usually means a forgotten exit, which
+        # would otherwise surface as an unreachable exit.
+        for node in self._nodes.values():
+            if node.name in reachable - set(self._routing) - {self.exit.name}:
+                raise ValueError(
+                    f"{node.name!r} has no onward route. End its route with "
+                    "model.exit, e.g. model.route([..., service, model.exit])."
+                )
         for node in self._nodes.values():
             if node.kind not in NETWORK_KINDS:
                 continue
@@ -791,6 +801,14 @@ class Model:
             raise ValueError(
                 f"{top.name!r} produces, so it needs a route to its first station."
             )
+        released = nx.descendants(self._graph, top.name)
+        for node in stations:
+            if node.name in released and node.name not in self._routing:
+                raise ValueError(
+                    f"{node.name!r} has no onward route. End the production route "
+                    f"by returning to {top.name!r}, e.g. "
+                    "model.route([factory, ..., station, factory])."
+                )
         for node in stations:
             if not nx.has_path(
                 G=self._graph,
@@ -899,7 +917,7 @@ class Model:
         warmup: Real = 0,
         drain: bool = False,
     ) -> Results:
-        """Close arrivals at duration, optionally serving everyone to completion."""
+        """Close arrivals at duration, optionally running until no customers remain."""
         self.validate()
         horizon = number(
             value=duration,

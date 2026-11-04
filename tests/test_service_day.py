@@ -9,7 +9,7 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from flowsim import Comparison, Experiment, Model, compare
-from tests.models import deterministic_queue, service_network
+from tests.models import beer_chain, deterministic_queue, service_network
 
 
 def test_drain_finishes_the_arrival_cohort_and_preserves_opening_metrics():
@@ -633,3 +633,78 @@ def test_comparison_outputs_accept_a_baseline_and_read_current_tables(tmp_path):
     assert set(
         result.summary.filter(pl.col("scenario") == "One")["mean_total_wait"]
     ) == {99.0}
+
+
+def test_comparison_viewer_and_plot_name_the_chosen_station():
+    result = compare(
+        scenarios={
+            "One server": service_network(service_capacity=1),
+            "Two servers": service_network(service_capacity=2),
+        },
+        duration=60,
+        replications=3,
+        seed=1,
+        drain=True,
+    )
+    for chosen, other in [("Check-in", "Service"), ("Service", "Check-in")]:
+        document = result.viewer(
+            metric="mean_wait",
+            station=chosen,
+        )
+        title = f"Mean station waiting time at {chosen}"
+        assert title in document
+        assert f"Mean station waiting time at {other}" not in document
+        plot = result.plot(
+            metric="mean_wait",
+            station=chosen,
+        )
+        assert chosen in plot.layout.xaxis.title.text
+        assert other not in plot.layout.xaxis.title.text
+        assert chosen in plot.data[0].hovertemplate
+
+
+def test_comparison_viewer_prints_a_fractional_confidence_level():
+    result = compare(
+        scenarios={
+            "One": deterministic_queue(),
+            "Two": deterministic_queue(capacity=2),
+        },
+        duration=3,
+        replications=3,
+        drain=True,
+    )
+    assert "97.5%" in result.viewer(confidence=0.975)
+    assert "95%" in result.viewer(confidence=0.95)
+    assert "90%" in result.viewer(confidence=0.9)
+
+
+def test_export_removes_stale_flowsim_files_and_keeps_other_files(tmp_path):
+    (tmp_path / "notes.txt").write_text("keep")
+    (tmp_path / "sub").mkdir()
+    beer_chain().run(duration=10).export(tmp_path)
+    assert (tmp_path / "inventory.csv").exists()
+    service_network().run(duration=30).export(tmp_path)
+    for name in ["inventory.csv", "shipments.csv", "stock_points.csv"]:
+        assert not (tmp_path / name).exists()
+    assert (tmp_path / "customers.csv").exists()
+    assert (tmp_path / "notes.txt").read_text() == "keep"
+    assert (tmp_path / "sub").is_dir()
+
+
+def test_results_export_removes_stale_comparison_files(tmp_path):
+    result = compare(
+        scenarios={
+            "One": deterministic_queue(),
+            "Two": deterministic_queue(capacity=2),
+        },
+        duration=3,
+        replications=2,
+        drain=True,
+    )
+    result.export(tmp_path)
+    for name in ["runs.csv", "intervals.csv", "differences.csv"]:
+        assert (tmp_path / name).exists()
+    deterministic_queue().run(duration=3).export(tmp_path)
+    for name in ["runs.csv", "intervals.csv", "differences.csv"]:
+        assert not (tmp_path / name).exists()
+    assert (tmp_path / "summary.csv").exists()

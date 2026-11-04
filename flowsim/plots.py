@@ -246,6 +246,7 @@ def queue_plot(result: Results) -> go.Figure:
             line_color=GRAY,
             line_dash="dash",
         )
+    warmup_line(figure, result)
     return figure
 
 
@@ -356,6 +357,7 @@ def resource_plot(result: Results) -> go.Figure:
             line_color=GRAY,
             line_dash="dash",
         )
+    warmup_line(figure, result)
     return figure
 
 

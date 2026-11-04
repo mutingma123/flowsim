@@ -952,11 +952,12 @@ time, and a download of the jobs table.
 Arrivals occur in `[0, duration)`. With the default `drain=False`, service also
 stops at `duration`, excluding events exactly at that time, and the records of
 customers still waiting or in service remain in the results. With `drain=True`,
-arrivals stop at `duration` and service continues until every admitted customer
-finishes, including events exactly at closing. `end_time` reports when service
-ends, and `overtime` is `end_time - duration` (zero when all customers finish
-before closing). The state trace includes the continuation, and the viewer marks
-closing with a dashed line.
+arrivals stop at `duration`, and the run includes events exactly at closing and
+continues until every customer who was not rejected has completed service or
+abandoned.
+`end_time` reports when service ends, and `overtime` is `end_time - duration`
+(zero when all customers finish before closing). The state trace includes the
+continuation, and the viewer marks closing with a dashed line.
 
 Several events can occur at the same instant. FlowSim processes shift changes
 first, then service completions, transfers, failures, and repairs in the order
@@ -987,7 +988,8 @@ Flow-time and total-wait averages use system arrivals at or after warm-up whose
 exits were observed, and `cohort_remaining` counts unfinished members of that
 arrival cohort. With `drain=False`, these observed averages can underrepresent
 long waits and flow times, particularly when the queue is still growing.
-Draining completes the admitted cohort.
+Draining leaves no unfinished customers, so every admitted customer's outcome
+is observed.
 
 `total_wait` accumulates waits completed before service starts, so it excludes
 any ongoing wait of an unfinished customer. `service_time` in `visits` is a

@@ -458,3 +458,41 @@ def test_production_route_edges_are_checked_when_added():
     )
     model.route([factory, press, factory])
     assert model.routing["Press"][None] == (("Factory", 1.0),)
+
+
+def test_a_production_station_without_an_onward_route_names_that_station():
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=4,
+    )
+    factory = model.stock_point(
+        name="Factory",
+        initial=10,
+        lead_time=None,
+        batch_size=5,
+        shortage="backorder",
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+            cover=1,
+        ),
+        forecast_from="orders",
+    )
+    first = model.station(
+        name="A",
+        capacity=1,
+        service_time=0.1,
+    )
+    second = model.station(
+        name="B",
+        capacity=1,
+        service_time=0.1,
+    )
+    model.route([factory, first, second])
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    with pytest.raises(ValueError, match="^'B' has no onward route"):
+        model.run(duration=5)

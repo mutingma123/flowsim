@@ -9,7 +9,7 @@ averages, and the summary reports how many left.
 import polars as pl
 import pytest
 
-from flowsim import Model
+from flowsim import Model, compare
 from flowsim.plots import timeline_spans
 
 
@@ -386,3 +386,52 @@ def test_patience_arguments_are_validated(arguments, message):
             service_time=1,
             **arguments,
         )
+
+
+def test_drained_run_with_abandonment_ends_with_nobody_remaining():
+    model = call_line()
+    result = model.run(
+        duration=20,
+        drain=True,
+    )
+    summary = result.summary.to_dicts()[0]
+    assert summary["remaining"] == 0
+    assert summary["abandoned"] > 0
+    assert summary["completed"] + summary["abandoned"] == (
+        summary["arrivals"] - summary["rejected"]
+    )
+    comparison = compare(
+        scenarios={"Patient": call_line(), "Impatient": call_line(patience=1)},
+        duration=20,
+        replications=2,
+        drain=True,
+    )
+    assert "served to completion" not in comparison.viewer()
+    assert "completed service or abandoned" in comparison.viewer()
+
+
+def test_drained_run_with_rejection_ends_with_nobody_remaining():
+    # Arrivals every 0.5 for 10 time units (20, from 0 to 9.5) meet one server
+    # with service 1 and no buffer, so an arrival is rejected whenever the
+    # server is busy.
+    model = Model()
+    arrivals = model.source(
+        name="Customers",
+        interarrival=0.5,
+        first_arrival=0,
+    )
+    desk = model.station(
+        name="Desk",
+        capacity=1,
+        service_time=1,
+        buffer=0,
+        external_overflow="reject",
+    )
+    model.route([arrivals, desk, model.exit])
+    summary = model.run(duration=10, drain=True).summary.to_dicts()[0]
+    assert (summary["arrivals"], summary["rejected"], summary["completed"]) == (
+        20,
+        10,
+        10,
+    )
+    assert summary["remaining"] == 0

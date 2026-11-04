@@ -25,6 +25,7 @@ from flowsim.results import (
     interval_estimate,
     interval_frame,
     metric_units,
+    remove_stale_exports,
     write_text,
 )
 
@@ -225,6 +226,8 @@ class Comparison:
             )
         )
         rows = table.to_dicts()
+        where = station if station is not None else stock_point
+        where_hover = "" if where is None else f"<br>{label(where)}"
         figure = go.Figure(
             go.Scatter(
                 x=[row["mean"] for row in rows],
@@ -244,11 +247,13 @@ class Comparison:
                     "thickness": 2.5,
                     "width": 5,
                 },
-                hovertemplate="%{y}<br>Estimate: %{x:.3f}<extra></extra>",
+                hovertemplate=f"%{{y}}{where_hover}<br>Estimate: %{{x:.3f}}<extra></extra>",
             )
         )
         fraction = METRICS[metric].kind == "fraction"
         axis_label = METRICS[metric].label
+        if where is not None:
+            axis_label += f" at {where}"
         if not fraction:
             axis_label += f" ({metric_units(metric, self.time_unit)})"
         if differences:
@@ -343,6 +348,8 @@ class Comparison:
         title = METRICS[metric].label
         if stock_point is not None:
             title += f" at {stock_point}"
+        elif station is not None:
+            title += f" at {station}"
         units = html.escape(
             "percent" if fraction else metric_units(metric, self.time_unit)
         )
@@ -357,7 +364,7 @@ class Comparison:
                 f"Operating hours end at {self.duration:g} {self.time_unit}. "
                 f"Measurement begins at {self.warmup:g} {self.time_unit}. "
                 + (
-                    "Every admitted customer is served to completion."
+                    "Arrivals stopped at closing, and the run continued until every customer who was not rejected had completed service or abandoned."
                     if self.drain
                     else "Service stops at closing. Waiting and flow averages include observed outcomes."
                 )
@@ -365,7 +372,7 @@ class Comparison:
         values = {
             "TEXT": html.escape(text),
             "TITLE": html.escape(title),
-            "CONFIDENCE": f"{confidence:.0%}",
+            "CONFIDENCE": f"{confidence * 100:g}%",
             "MEANS": means_html,
             "UNITS": units,
             "TABLE_ROWS": table_rows,
@@ -415,6 +422,7 @@ class Comparison:
             parents=True,
             exist_ok=True,
         )
+        written = {"runs.csv", "stations.csv", "intervals.csv", "differences.csv"}
         self.summary.write_csv(destination / "runs.csv")
         self.stations.write_csv(destination / "stations.csv")
         if any(
@@ -422,6 +430,7 @@ class Comparison:
             for experiment in self.experiments.values()
         ):
             self.stock_points.write_csv(destination / "stock_points.csv")
+            written.add("stock_points.csv")
         intervals.write_csv(destination / "intervals.csv")
         differences.write_csv(destination / "differences.csv")
         metadata = {
@@ -438,6 +447,7 @@ class Comparison:
             "difference": "Scenario minus baseline within matched replication",
         }
         _write_metadata(destination / "metadata.json", metadata)
+        remove_stale_exports(destination, written | {"metadata.json"})
         return destination
 
 

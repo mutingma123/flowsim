@@ -29,7 +29,7 @@ def test_offline_viewer_controls_and_download(tmp_path, offline_page, drain):
     assert "Unfinished at closing" in page.locator("#cards").inner_text()
     if drain:
         assert (
-            "every admitted customer was served" in page.locator("#notice").inner_text()
+            "had completed service or abandoned" in page.locator("#notice").inner_text()
         )
     assert page.locator("#station-choice option").all_text_contents() == [
         "Check-in",

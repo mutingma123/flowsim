@@ -573,6 +573,36 @@ def _run_settings(run: Results) -> tuple:
     return (run.duration, run.warmup, run.drain, run.time_unit)
 
 
+# Every file name a FlowSim export can write. An export removes the ones it did
+# not write, so a folder never mixes files from two different exports.
+EXPORT_FILE_NAMES = frozenset(
+    {
+        "customers.csv",
+        "visits.csv",
+        "states.csv",
+        "stations.csv",
+        "summary.csv",
+        "activities.csv",
+        "failures.csv",
+        "inventory.csv",
+        "shipments.csv",
+        "stock_points.csv",
+        "metadata.json",
+        "runs.csv",
+        "intervals.csv",
+        "differences.csv",
+    }
+)
+
+
+def remove_stale_exports(destination: Path, written: set[str]) -> None:
+    """Delete FlowSim export files in destination that this export did not write."""
+    for name in EXPORT_FILE_NAMES - written:
+        stale = destination / name
+        if stale.is_file():
+            stale.unlink()
+
+
 def _write_metadata(path: str | Path, data: dict) -> None:
     """Write export metadata as JSON, stamped with the FlowSim version."""
     write_text(path, json.dumps({"flowsim_version": __version__, **data}, indent=2))
@@ -1010,7 +1040,7 @@ class Results:
             parents=True,
             exist_ok=True,
         )
-        for name in [
+        names = [
             "customers",
             "visits",
             "states",
@@ -1018,11 +1048,11 @@ class Results:
             "summary",
             "activities",
             "failures",
-        ]:
-            getattr(self, name).write_csv(destination / f"{name}.csv")
+        ]
         if self.supply is not None:
-            for name in ["inventory", "shipments", "stock_points"]:
-                getattr(self, name).write_csv(destination / f"{name}.csv")
+            names += ["inventory", "shipments", "stock_points"]
+        for name in names:
+            getattr(self, name).write_csv(destination / f"{name}.csv")
         metadata = {
             "time_unit": self.time_unit,
             "duration": self.duration,
@@ -1056,6 +1086,10 @@ class Results:
                 "Null for shipments still in transit at the end"
             )
         _write_metadata(destination / "metadata.json", metadata)
+        remove_stale_exports(
+            destination,
+            {f"{name}.csv" for name in names} | {"metadata.json"},
+        )
         return destination
 
 

@@ -454,7 +454,7 @@ def test_graph_validation_and_route_edit_are_atomic():
         service_time=1,
     )
     model.route([source, a])
-    with pytest.raises(ValueError, match="unreachable|route to the exit"):
+    with pytest.raises(ValueError, match="has no onward route"):
         model.run(duration=5)
     with pytest.raises(ValueError, match="^FlowSim supports acyclic routes only.$"):
         model.route([a, b, a])
@@ -1259,3 +1259,28 @@ def test_imports_sit_at_module_level_except_the_plot_methods():
         for alias in node.names
     ]
     assert not any(name.startswith("flowsim") for name in imported)
+
+
+def test_a_station_without_an_onward_route_names_the_station():
+    model = Model()
+    source = model.source(
+        name="Customers",
+        interarrival=1,
+    )
+    service = model.station(
+        name="Service",
+        capacity=1,
+        service_time=1,
+    )
+    model.route([source, service])
+    with pytest.raises(ValueError, match="'Service' has no onward route"):
+        model.run(duration=5)
+
+
+@pytest.mark.parametrize("plot_name", ["queue_plot", "resource_plot"])
+def test_queue_and_resource_plots_mark_the_warmup(plot_name):
+    marked = getattr(service_network().run(duration=30, warmup=5), plot_name)()
+    lines = [shape for shape in marked.layout.shapes if shape.type == "line"]
+    assert [shape.x0 for shape in lines] == [5]
+    plain = getattr(service_network().run(duration=30), plot_name)()
+    assert not [shape for shape in plain.layout.shapes if shape.type == "line"]

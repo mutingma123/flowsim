@@ -152,7 +152,7 @@
   document.getElementById("notice").textContent =
     "Flow-time averages use " + summary.cohort_completions + " customers who arrived after warm-up and completed service. " +
     summary.cohort_remaining + " customers in that arrival cohort remain unfinished. " +
-    (result.drain ? "Arrivals stopped at closing, and every admitted customer was served. Overtime: " + format(summary.overtime) + " " + unit + ". " :
+    (result.drain ? "Arrivals stopped at closing, and the run continued until every customer who was not rejected had completed service or abandoned. Overtime: " + format(summary.overtime) + " " + unit + ". " :
       "Service stopped at closing. Unfinished final flow times are unknown. ") +
     "Operating-hour counts exclude events exactly at closing. Rejected arrivals: " + summary.rejected +
     ". Abandoned customers: " + summary.abandoned +
