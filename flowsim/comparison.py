@@ -24,8 +24,11 @@ from flowsim.results import (
     confidence_level,
     interval_estimate,
     interval_frame,
+    metric_error,
     metric_units,
     remove_stale_exports,
+    scope_name,
+    unknown,
     write_text,
 )
 
@@ -86,24 +89,35 @@ class Comparison:
         station: str | None,
         stock_point: str | None = None,
     ) -> np.ndarray:
+        if metric not in METRICS:
+            raise metric_error(metric)
+        scope = scope_name(metric)
+        first = next(iter(self.experiments.values()))
         if stock_point is not None:
             if metric not in STOCK_POINT_METRICS:
                 raise ValueError(
+                    f"{metric!r} is a {scope} metric, not a stock-point metric. "
                     f"Choose a stock-point metric from {STOCK_POINT_METRICS}."
                 )
             if station is not None:
                 raise ValueError("Name a station or a stock point, not both.")
         elif metric in STOCK_POINT_METRICS:
+            example = first.stock_point_names()[:1]
+            hint = f", e.g. stock_point={example[0]!r}" if example else ""
             raise ValueError(
-                f"{metric!r} is a stock-point metric, so name a stock point."
+                f"{metric!r} is a stock-point metric, so name a stock point{hint}."
             )
         elif station is None and metric not in SYSTEM_METRICS:
+            example = list(first.runs[0].capacities)[:1]
+            hint = f", e.g. station={example[0]!r}" if example else ""
             raise ValueError(
-                f"Choose a system metric from {SYSTEM_METRICS}, "
-                "or name a station for a station metric."
+                f"{metric!r} is a {scope} metric, so name a station{hint}."
             )
         if station is not None and metric not in STATION_METRICS:
-            raise ValueError(f"Choose a station metric from {STATION_METRICS}.")
+            raise ValueError(
+                f"{metric!r} is a {scope} metric, so it takes no station. "
+                f"Choose a station metric from {STATION_METRICS}."
+            )
         try:
             return self.experiments[scenario]._values(
                 metric=metric,
@@ -116,7 +130,12 @@ class Comparison:
     def _reference(self, baseline: str | None) -> str:
         reference = self.baseline if baseline is None else baseline
         if reference not in self.experiments:
-            raise ValueError(f"Unknown baseline scenario {reference!r}.")
+            raise unknown(
+                kind="baseline scenario",
+                name=reference,
+                choices=list(self.experiments),
+                intro=f"Unknown baseline scenario {reference!r}.",
+            )
         return reference
 
     def intervals(

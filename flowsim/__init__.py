@@ -33,7 +33,7 @@ from flowsim.fitting import (
 )
 from flowsim.model import Model, Node
 from flowsim.policies import moving_average, order_up_to
-from flowsim.results import Experiment, Results
+from flowsim.results import Experiment, Results, explain, metrics
 
 __all__ = [
     "ALL_FAMILIES",
@@ -53,10 +53,12 @@ __all__ = [
     "discrete",
     "empirical",
     "erlang",
+    "explain",
     "exponential",
     "fit_all",
     "gamma",
     "lognormal",
+    "metrics",
     "moving_average",
     "negative_binomial",
     "normal",

@@ -845,11 +845,15 @@ backorders.
 Stock-point measures use review periods at or after warm-up. The bullwhip ratio
 is the variance of a stage's orders divided by the variance of the orders it
 receives, both with the n - 1 divisor, and it is missing when incoming orders do
-not vary. The fill rate is the share of each period's incoming orders filled
-from stock in that period, so filled backorders do not count toward it. Mean
-stock and backorders average end-of-period values rather than integrating over
-time. For independent demand, a moving average over p periods, cover L, and no
-safety stock, the retailer's ratio is 1 + 2L/p + 2L^2/p^2 (Chen et al. 1999,
+not vary. The fill rate is the total units of incoming orders filled from
+stock in the period they arrived divided by total incoming orders over the
+measured periods, so filled backorders do not count and the rate is missing
+when no orders arrived. Mean stock on hand and mean backorders average
+end-of-period values with equal weight per review. Stock changes only at
+reviews, so these means equal time averages when warm-up and closing fall on
+review times, and a period that closing cuts short still counts as a whole
+period. For independent demand, a moving average over p periods, cover L, and
+no safety stock, the retailer's ratio is 1 + 2L/p + 2L^2/p^2 (Chen et al. 1999,
 equation 14.8), i.e., 2.12 for p = 5 and L = 2, and the test suite checks the
 simulator against this value. However, the closed form allows negative orders
 and FlowSim never orders less than zero, so it applies only when demand rarely
@@ -971,8 +975,10 @@ customers still waiting or in service remain in the results. With `drain=True`,
 arrivals stop at `duration`, and the run includes events exactly at closing and
 continues until every customer who was not rejected has completed service or
 abandoned.
-`end_time` reports when service ends, and `overtime` is `end_time - duration`
-(zero when all customers finish before closing). The state trace includes the
+`end_time` is the closing time in a run that is not drained and, in a drained
+run, the later of closing and the last exit or abandonment, and `overtime` is
+`end_time - duration` (zero in a run that is not drained and in a drained run
+whose customers all finish by closing). The state trace includes the
 continuation, and the viewer marks closing with a dashed line.
 
 Several events can occur at the same instant. FlowSim processes shift changes
@@ -996,9 +1002,10 @@ is processing, paused, or blocked, so `occupied_at_close` includes the servers
 that `blocked_at_close` and `paused_at_close` count. Closing and final counts
 include customers who arrived before warm-up.
 
-Mean and 95th percentile waiting times use station arrivals at or after warm-up
-whose service starts were observed, including visits to downstream stations
-after closing when service continues. `wait_arrivals` reports the size of this
+Mean and 95th percentile waiting times use visits admitted to the station's
+line at or after warm-up whose service starts were observed, including visits
+admitted after closing when a drained run continues, and they exclude time spent
+outside a full finite buffer or blocked upstream. `wait_arrivals` reports the size of this
 visit cohort, and `wait_observations` reports the number with observed waits.
 Flow-time and total-wait averages use system arrivals at or after warm-up whose
 exits were observed, and `cohort_remaining` counts unfinished members of that
@@ -1019,10 +1026,11 @@ occupied-server area divided by installed capacity and observation time, where
 occupied servers include paused and blocked jobs. `processing_utilization`
 measures actual processing against installed capacity, and `blocking_fraction`
 and `downtime_fraction` measure blocking and down-server exposure against that
-capacity. Down time and paused work can overlap, so these fractions must not be
-added. `mean_scheduled_servers` and `mean_available_servers` integrate staffing
-and up-server counts, where available servers include off-duty servers finishing
-a job. `staffed_utilization` divides processing area by available-server area
+capacity. Down time can overlap paused and blocked time, so these fractions must
+not be added. `mean_scheduled_servers` and `mean_available_servers` integrate staffing
+and available-server counts, where available servers are on duty and not down,
+plus off-duty servers that are not down and are finishing a job at a station
+whose shifts end with `shift_end='finish'`. `staffed_utilization` divides processing area by available-server area
 and is missing when available exposure is zero. Work in process uses admitted
 customers' presence clipped to the measurement window, and queue maxima exclude
 states lasting zero time.
@@ -1146,7 +1154,7 @@ names one.
 | `mean_scheduled_servers` | Station | Mean number of scheduled servers |
 | `mean_available_servers` | Station | Mean number of available servers |
 | `mean_outside_queue` | Station | Time-average customers waiting outside the station |
-| `bullwhip_ratio` | Stock point | Variance of orders placed divided by variance of orders received |
+| `bullwhip_ratio` | Stock point | Variance of orders placed divided by variance of incoming orders |
 | `fill_rate` | Stock point | Share of incoming orders filled from stock in the same period |
 | `mean_on_hand` | Stock point | Mean end-of-period stock on hand |
 | `mean_backorders` | Stock point | Mean end-of-period backorders |
