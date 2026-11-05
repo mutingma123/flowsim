@@ -561,3 +561,215 @@ def test_builder_flags_branch_sums_outside_the_model_tolerance(tmp_path, offline
     page.fill(arrow, "0.7")
     page.fill(other, "0.3")
     assert "sum to" not in page.locator("#problems").inner_text()
+
+
+def active_id(page):
+    return page.evaluate("document.activeElement.id")
+
+
+def test_builder_builds_and_edits_a_model_from_the_keyboard(
+    tmp_path, offline_page, monkeypatch
+):
+    page = open_builder(tmp_path, offline_page)
+    page.fill("#run-duration", "10")
+    # Adding a node moves focus to its name, and the live region announces it.
+    page.focus("#add-source")
+    page.keyboard.press("Enter")
+    assert active_id(page) == "field-name"
+    assert "Added source Source" in page.locator("#announce").text_content()
+    page.keyboard.press("Control+a")
+    page.keyboard.type("Customers")
+    page.select_option("#field-interarrival-kind", "constant")
+    page.fill("#field-interarrival-value", "1")
+    page.fill("#field-first_arrival", "0")
+    page.fill("#field-limit", "3")
+    page.focus("#add-station")
+    page.keyboard.press("Enter")
+    page.keyboard.press("Control+a")
+    page.keyboard.type("Service")
+    page.select_option("#field-service_time-kind", "constant")
+    page.fill("#field-service_time-value", "2")
+    station = page.locator("#panel").get_attribute("data-node-id")
+    # Tabbing to a node selects it, and Enter moves into its panel.
+    page.focus('g.node[data-node-id="n1"]')
+    assert page.locator("#panel").get_attribute("data-node-id") == "n1"
+    assert (
+        page.locator('g.node[data-node-id="n1"]').get_attribute("aria-pressed")
+        == "true"
+    )
+    page.keyboard.press("Enter")
+    assert active_id(page) == "field-name"
+    # The panel's route controls connect nodes without a pointer.
+    page.select_option("#route-target", station)
+    page.focus("#add-route")
+    page.keyboard.press("Enter")
+    assert active_id(page) == "route-target"
+    page.focus(f'g.node[data-node-id="{station}"]')
+    page.keyboard.press("Enter")
+    page.select_option("#route-target", "exit")
+    page.focus("#add-route")
+    page.keyboard.press("Enter")
+    assert "No problems found" in page.locator("#problems").inner_text()
+    # Each node and arrow has a name and a role for assistive technology.
+    customers = page.locator('g.node[data-node-id="n1"]')
+    assert customers.get_attribute("role") == "button"
+    assert customers.get_attribute("aria-label") == "source Customers: constant 1"
+    arrow = page.locator(f'.edge-hit[data-from="n1"][data-to="{station}"]')
+    assert arrow.get_attribute("aria-label") == "Route from Customers to Service"
+    # Arrow keys move a focused node by 10, or by 50 with Shift.
+    before = node_state(page, "n1")
+    page.focus('g.node[data-node-id="n1"]')
+    page.keyboard.press("ArrowRight")
+    page.keyboard.press("Shift+ArrowDown")
+    after = node_state(page, "n1")
+    assert (after["x"], after["y"]) == (before["x"] + 10, before["y"] + 50)
+    assert page.evaluate("document.activeElement.dataset.focusKey") == "node:n1"
+    results = run_script(page.locator("#code").text_content(), tmp_path, monkeypatch)
+    assert_same_run(
+        results,
+        deterministic_queue().run(
+            duration=10,
+            seed=42,
+        ),
+    )
+    # Escape clears the selection, and Delete removes the focused node.
+    page.keyboard.press("Escape")
+    assert page.locator("#panel h2").text_content() == "Nothing selected"
+    page.focus(f'g.node[data-node-id="{station}"]')
+    page.keyboard.press("Delete")
+    assert page.locator(f'g.node[data-node-id="{station}"]').count() == 0
+    assert active_id(page) == "canvas"
+    assert "Deleted station Service" in page.locator("#announce").text_content()
+
+
+def test_builder_undoes_and_redoes_each_change(tmp_path, offline_page):
+    page = open_builder(tmp_path, offline_page)
+    assert page.locator("#undo").is_disabled() and page.locator("#redo").is_disabled()
+    empty = page.evaluate("window.flowsimBuilder.state()")
+    source = add_node(page, kind="source", name="Customers")
+    # Adding a node and typing its name are two steps; the keystrokes are one.
+    named = page.evaluate("window.flowsimBuilder.state()")
+    station = add_node(page, kind="station", name="Desk")
+    drag_route(page, source, station)
+    routed = page.evaluate("window.flowsimBuilder.state()")
+    drag(page, center(node_box(page, station)), (700, 600))
+    moved = page.evaluate("window.flowsimBuilder.state()")
+    assert moved != routed
+    page.locator("#canvas rect.background").click(position={"x": 5, "y": 5})
+    page.keyboard.press("Control+z")
+    assert page.evaluate("window.flowsimBuilder.state()") == routed
+    page.click("#undo")
+    page.click("#undo")
+    page.click("#undo")
+    assert page.evaluate("window.flowsimBuilder.state()") == named
+    page.keyboard.press("Control+Shift+z")
+    page.keyboard.press("Control+y")
+    page.keyboard.press("Control+y")
+    page.keyboard.press("Control+y")
+    assert page.evaluate("window.flowsimBuilder.state()") == moved
+    assert page.locator("#redo").is_disabled()
+    # Inside a text field, Ctrl+Z is the browser's own undo of that field.
+    page.focus("#run-seed")
+    page.keyboard.press("Control+z")
+    assert page.evaluate("window.flowsimBuilder.state()") == moved
+    # New model and file loading are undoable, and a new change clears redo.
+    page.click("#clear-model")
+    assert page.evaluate("window.flowsimBuilder.state()") == empty
+    page.click("#undo")
+    assert page.evaluate("window.flowsimBuilder.state()") == moved
+    page.click("#undo")
+    page.click("#arrange")
+    assert page.locator("#redo").is_disabled()
+    # The history keeps the last 100 steps.
+    page.evaluate(
+        "() => { for (let i = 0; i < 105; i += 1) "
+        "document.getElementById('arrange').click(); }"
+    )
+    undone = page.evaluate(
+        "() => { let count = 0; const button = document.getElementById('undo'); "
+        "while (!button.disabled) { button.click(); count += 1; } return count; }"
+    )
+    assert undone == 100
+
+
+def test_builder_arranges_nodes_in_left_to_right_layers(tmp_path, offline_page):
+    page = open_builder(tmp_path, offline_page)
+    build_branching_service(page)
+    before = page.evaluate("window.flowsimBuilder.state()")
+    page.click("#arrange")
+
+    def position(name):
+        nodes = page.evaluate("window.flowsimBuilder.state()")["nodes"]
+        node = next(node for node in nodes if node["name"] == name)
+        return node["x"], node["y"]
+
+    # Four layers (920 - 60 - 150) / 3 = 236.67 apart, under the 240 cap, so x
+    # is 30, 266.67, 503.33, and 740, rounded. A one-node layer starts at (520 - 95) / 2 = 212.5, which rounds to 213,
+    # and the two-node layer at (520 - 190) / 2 = 165, then 165 + 95 = 260.
+    assert position("Customers") == (30, 213)
+    assert position("Triage") == (267, 213)
+    assert position("Routine") == (503, 165)
+    assert position("Specialist") == (503, 260)
+    assert position("Exit") == (740, 213)
+    assert "Arranged 5 nodes in 4 columns." in page.locator("#announce").text_content()
+    page.click("#undo")
+    assert page.evaluate("window.flowsimBuilder.state()") == before
+
+
+def test_builder_arranges_a_loop_by_steps_from_the_sources(tmp_path, offline_page):
+    page = open_builder(tmp_path, offline_page)
+    source = add_node(page, kind="source", name="S")
+    first = add_node(page, kind="station", name="A")
+    second = add_node(page, kind="station", name="B")
+    panel_route(page, source, first)
+    panel_route(page, first, second)
+    panel_route(page, second, first)
+    panel_route(page, second, "exit")
+    assert "form a loop" in page.locator("#problems").inner_text()
+    page.click("#arrange")
+    nodes = page.evaluate("window.flowsimBuilder.state()")["nodes"]
+    # S is 0 steps from the source, A is 1, and B is 2, then the exit.
+    assert [node["x"] for node in nodes] == [740, 30, 267, 503]
+
+
+def history_sizes(page):
+    """Count undo and redo steps by clicking each button until it disables."""
+    return page.evaluate(
+        "() => { const count = (id) => { let n = 0; const b = "
+        "document.getElementById(id); while (!b.disabled) { b.click(); n += 1; } "
+        "return n; }; const undone = count('undo'); count('redo'); return undone; }"
+    )
+
+
+def test_builder_route_choice_keeps_redo_and_a_route_is_one_step(
+    tmp_path, offline_page
+):
+    page = open_builder(tmp_path, offline_page)
+    source = add_node(page, kind="source", name="Customers")
+    add_node(page, kind="station", name="Desk")
+    page.click("#undo")
+    page.locator(f'g.node[data-node-id="{source}"] rect.body').click(
+        position={"x": 8, "y": 8}
+    )
+    # Choosing a destination edits nothing, so the undone name can be redone.
+    page.select_option("#route-target", "exit")
+    assert not page.locator("#redo").is_disabled()
+    page.click("#redo")
+    steps = history_sizes(page)
+    page.click("#add-route")
+    assert history_sizes(page) == steps + 1
+
+
+def test_builder_arranges_a_long_chain_without_overlap(tmp_path, offline_page):
+    page = open_builder(tmp_path, offline_page)
+    ids = [add_node(page, kind="source", name="In")]
+    ids += [add_node(page, kind="station", name=f"S{index}") for index in range(4)]
+    for origin, target in zip(ids, [*ids[1:], "exit"]):
+        panel_route(page, origin, target)
+    page.click("#arrange")
+    nodes = page.evaluate("window.flowsimBuilder.state()")["nodes"]
+    # Six columns would fit 142 apart, under the 150 + 40 minimum, so they sit
+    # 190 apart from x = 30, and the canvas widens to 980 + 150 + 30 = 1160.
+    by_x = sorted((node["x"], node["y"]) for node in nodes)
+    assert by_x == [(x, 213) for x in [30, 220, 410, 600, 790, 980]]
+    assert page.locator("#canvas").get_attribute("viewBox") == "0 0 1160 520"

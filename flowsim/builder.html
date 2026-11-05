@@ -46,6 +46,13 @@
     .edge-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
     .pending { stroke: #d55e00; stroke-width: 2; stroke-dasharray: 5 4; pointer-events: none; }
     .edge-prob { width: 60px; font-size: 12px; padding: 2px 4px; text-align: center; border-color: #455966; }
+    .node:focus { outline: none; }
+    .node:focus-visible rect.body { stroke: #d55e00; stroke-width: 3; stroke-dasharray: 6 3; }
+    .edge-hit:focus { outline: none; }
+    .edge-hit:focus-visible { stroke: rgba(213, 94, 0, 0.35); }
+    button:focus-visible, .button:focus-within, select:focus-visible, input:focus-visible { outline: 3px solid #d55e00; outline-offset: 1px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+    kbd { font: 12px ui-monospace, monospace; border: 1px solid #a9bac7; border-radius: 3px; padding: 0 4px; background: #f7f9fb; }
     aside { max-height: 640px; overflow-y: auto; }
     aside .field { margin: 0 0 12px; }
     aside .field > label, aside legend { display: block; font-weight: 600; margin-bottom: 4px; font-family: ui-monospace, monospace; font-size: 13px; }
@@ -80,6 +87,9 @@
     <button id="add-source" type="button">Add source</button>
     <button id="add-station" type="button">Add station</button>
     <button id="delete-selected" type="button" disabled>Delete selected</button>
+    <button id="undo" type="button" disabled aria-keyshortcuts="Control+Z">Undo</button>
+    <button id="redo" type="button" disabled aria-keyshortcuts="Control+Shift+Z Control+Y">Redo</button>
+    <button id="arrange" type="button">Arrange</button>
     <span class="gap"></span>
     <label for="time-unit">Time unit</label><input id="time-unit">
     <label for="run-duration">Run length</label><input id="run-duration" inputmode="decimal">
@@ -90,16 +100,17 @@
     <label class="button" for="load-json">Load model file</label>
     <input type="file" id="load-json" accept=".json,application/json" hidden>
     <button id="clear-model" type="button">New model</button>
-    <span id="file-status"></span>
+    <span id="file-status" role="status"></span>
   </div>
 
   <div class="workspace">
     <section class="canvas-box">
-      <svg id="canvas" viewBox="0 0 920 520" role="img" aria-label="Model diagram"></svg>
-      <p id="canvas-status"></p>
-      <p class="muted" style="margin: 0 2px; font-size: 14px;">Drag a node to move it. Drag from the dot on a node's right edge to another node to add a route. Two or more routes from one node make a branch, with a probability on each arrow. Select a node or an arrow to edit it, and press Delete to remove it.</p>
+      <svg id="canvas" viewBox="0 0 920 520" tabindex="-1" role="group" aria-label="Model diagram" aria-describedby="canvas-help"></svg>
+      <p id="canvas-status" role="alert"></p>
+      <p id="announce" class="sr-only" role="status"></p>
+      <p class="muted" id="canvas-help" style="margin: 0 2px; font-size: 14px;">Drag a node to move it. Drag from the dot on a node's right edge to another node to add a route. Two or more routes from one node make a branch, with a probability on each arrow. Select a node or an arrow to edit it, and press Delete to remove it. From the keyboard, <kbd>Tab</kbd> reaches each node and arrow, <kbd>Enter</kbd> edits it in the side panel (where <em>Add route</em> connects nodes), the arrow keys move a node (<kbd>Shift</kbd> moves farther), <kbd>Delete</kbd> removes it, and <kbd>Escape</kbd> clears the selection. <kbd>Ctrl</kbd>+<kbd>Z</kbd> undoes and <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Z</kbd> or <kbd>Ctrl</kbd>+<kbd>Y</kbd> redoes outside a text field. Arrange places the nodes left to right along their routes.</p>
     </section>
-    <aside id="panel"></aside>
+    <aside id="panel" tabindex="-1" aria-label="Selected item"></aside>
   </div>
 
   <section>
@@ -112,7 +123,7 @@
       <h2>FlowSim script</h2>
       <button id="copy-code" type="button">Copy</button>
       <button id="download-code" type="button">Download .py</button>
-      <span id="copy-status"></span>
+      <span id="copy-status" role="status"></span>
     </div>
     <pre id="code"></pre>
   </section>
@@ -132,7 +143,12 @@ const SUPPORTED = SCHEMA.supported;
 const BRANCH_SUM_TOLERANCE = SCHEMA.branch_sum_tolerance;
 const RESERVED = new Set(SCHEMA.reserved);
 const WIDTH = 920;
-const HEIGHT = 520;
+const MIN_HEIGHT = 520;
+const MAX_X = 3000;
+const MAX_Y = 2000;
+const HISTORY_LIMIT = 100;
+const MOVE_STEP = 10;
+const MOVE_STEP_LARGE = 50;
 const NODE_W = 150;
 const NODE_H = 58;
 const LINE = 88;
@@ -143,6 +159,11 @@ const panel = document.getElementById("panel");
 let state = emptyState();
 let selection = null;
 let gesture = null;
+// Undo history: snapshots of the state and selection before each change.
+let undoStack = [];
+let redoStack = [];
+// The key of the edit in progress, so typing in one field is one undo step.
+let editing = null;
 
 function emptyState() {
   return {
@@ -223,18 +244,93 @@ function showStatus(text) {
   document.getElementById("canvas-status").textContent = text;
 }
 
+function announce(text) {
+  // A screen reader reads the polite status region; it is not shown.
+  document.getElementById("announce").textContent = text;
+}
+
+function canvasWidth() {
+  const rightmost = Math.max(0, ...state.nodes.map((node) => node.x + NODE_W));
+  return Math.max(WIDTH, rightmost + 30);
+}
+
+function canvasHeight() {
+  const lowest = Math.max(0, ...state.nodes.map((node) => node.y + NODE_H));
+  return Math.max(MIN_HEIGHT, lowest + 80);
+}
+
+// ---------- Undo ----------
+
+function snapshot() {
+  return JSON.stringify({state, selection});
+}
+
+// Save the state before a change. Consecutive changes with the same key (e.g.,
+// keystrokes in one field, or arrow-key moves of one node) are one step; a
+// null key always starts a new step.
+function record(key) {
+  if (key !== null && key === editing) return;
+  editing = key;
+  undoStack.push(snapshot());
+  if (undoStack.length > HISTORY_LIMIT) undoStack.shift();
+  redoStack = [];
+  updateHistoryButtons();
+}
+
+function restore(text) {
+  const saved = JSON.parse(text);
+  state = saved.state;
+  selection = saved.selection;
+  editing = null;
+  syncSettings();
+  renderAll();
+}
+
+function undo() {
+  if (!undoStack.length) return;
+  redoStack.push(snapshot());
+  restore(undoStack.pop());
+  announce("Undone.");
+}
+
+function redo() {
+  if (!redoStack.length) return;
+  undoStack.push(snapshot());
+  restore(redoStack.pop());
+  announce("Redone.");
+}
+
+function updateHistoryButtons() {
+  document.getElementById("undo").disabled = !undoStack.length;
+  document.getElementById("redo").disabled = !redoStack.length;
+}
+
 // ---------- Editing ----------
 
+function overlaps(x, y) {
+  return state.nodes.some((node) => Math.abs(node.x - x) < NODE_W + 10 && Math.abs(node.y - y) < NODE_H + 10);
+}
+
+function freeCell() {
+  // The first cell of a four-column grid, row by row, that no node covers.
+  for (let row = 0; ; row += 1) {
+    for (let column = 0; column < 4; column += 1) {
+      const x = 30 + column * 175;
+      const y = 40 + row * 115;
+      if (!overlaps(x, y) || y + NODE_H > MAX_Y) return {x, y: Math.min(y, MAX_Y - NODE_H)};
+    }
+  }
+}
+
 function addNode(kind) {
-  const count = state.nodes.filter((node) => node.kind !== "exit").length;
-  const column = count % 4;
-  const row = Math.floor(count / 4) % 4;
+  record(null);
+  const cell = freeCell();
   const node = {
     id: `n${state.next}`,
     kind,
     name: uniqueName(kind === "source" ? "Source" : "Station"),
-    x: 30 + column * 175,
-    y: 40 + row * 115,
+    x: cell.x,
+    y: cell.y,
     values: defaultValues(kind),
   };
   state.next += 1;
@@ -242,6 +338,8 @@ function addNode(kind) {
   selection = {type: "node", id: node.id};
   showStatus("");
   renderAll();
+  announce(`Added ${kind} ${node.name}. Its fields are in the side panel.`);
+  document.getElementById("field-name").focus();
 }
 
 function shareSplit(edges) {
@@ -276,14 +374,18 @@ function addEdge(from, to) {
     showStatus(refusal);
     return;
   }
+  record(null);
   state.edges.push({from, to, probability: "1"});
   const routes = outgoing(from);
   if (routes.length > 1) shareSplit(routes);
   showStatus("");
   renderAll();
+  announce(`Added a route from ${origin.name} to ${target.name}.`);
 }
 
 function removeEdge(from, to) {
+  record(null);
+  announce(`Removed the route from ${nodeById(from).name} to ${nodeById(to).name}.`);
   state.edges = state.edges.filter((edge) => !(edge.from === from && edge.to === to));
   const routes = outgoing(from);
   if (routes.length === 1) routes[0].probability = "1";
@@ -296,6 +398,8 @@ function removeEdge(from, to) {
 function removeNode(id) {
   const node = nodeById(id);
   if (!node || node.kind === "exit") return;
+  record(null);
+  announce(`Deleted ${node.kind} ${node.name}.`);
   const origins = new Set(state.edges.filter((edge) => edge.to === id).map((edge) => edge.from));
   state.edges = state.edges.filter((edge) => edge.from !== id && edge.to !== id);
   for (const origin of origins) {
@@ -355,15 +459,30 @@ function nodeDetail(node) {
   return parts.join(", ");
 }
 
+function edgeName(edge) {
+  const origin = nodeById(edge.from);
+  const target = nodeById(edge.to);
+  const branch = outgoing(edge.from).length > 1;
+  return `Route from ${origin.name} to ${target.name}${branch ? `, probability ${edge.probability}` : ""}`;
+}
+
 function renderCanvas() {
+  const width = canvasWidth();
+  const height = canvasHeight();
+  // Redrawing replaces every element, so remember which one had focus.
+  const active = document.activeElement;
+  const focusKey = active && canvas.contains(active) ? active.dataset.focusKey : null;
+  canvas.setAttribute("viewBox", `0 0 ${width} ${height}`);
   const parts = [
     '<defs>',
     '<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#455966"></path></marker>',
     '<marker id="arrow-selected" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#d55e00"></path></marker>',
     '<pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse"><path d="M20,0 L0,0 L0,20" fill="none" stroke="#eef2f5" stroke-width="1"></path></pattern>',
     '</defs>',
-    `<rect class="background" x="0" y="0" width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"></rect>`,
+    `<rect class="background" x="0" y="0" width="${width}" height="${height}" fill="url(#grid)"></rect>`,
   ];
+  // Arrows sit under the nodes, so a node and its route handle always take
+  // the pointer; the keyboard therefore reaches arrows before nodes.
   const labels = [];
   for (const edge of state.edges) {
     const origin = nodeById(edge.from);
@@ -373,14 +492,19 @@ function renderCanvas() {
     const chosen = selection && selection.type === "edge" && selection.from === edge.from && selection.to === edge.to;
     const path = `M${start.x.toFixed(1)},${start.y.toFixed(1)} L${end.x.toFixed(1)},${end.y.toFixed(1)}`;
     const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+    const name = escapeHtml(edgeName(edge));
     parts.push(`<path class="edge${chosen ? " selected" : ""}" d="${path}" marker-end="url(#${chosen ? "arrow-selected" : "arrow"})" ${data}></path>`);
-    parts.push(`<path class="edge-hit" d="${path}" ${data}><title>${escapeHtml(origin.name)} to ${escapeHtml(target.name)}</title></path>`);
+    parts.push(
+      `<path class="edge-hit" d="${path}" ${data} tabindex="0" role="button" aria-label="${name}" aria-pressed="${chosen ? "true" : "false"}" ` +
+      `data-focus-key="${escapeHtml(`edge:${edge.from}:${edge.to}`)}"><title>${name}</title></path>`
+    );
     if (outgoing(edge.from).length > 1) {
       const mx = (start.x + end.x) / 2;
       const my = (start.y + end.y) / 2;
       labels.push(
         `<foreignObject x="${(mx - 32).toFixed(1)}" y="${(my - 14).toFixed(1)}" width="64" height="28">` +
-        `<input class="edge-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability from ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}" inputmode="decimal">` +
+        `<input class="edge-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability from ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}" inputmode="decimal" ` +
+        `data-focus-key="${escapeHtml(`prob:${edge.from}:${edge.to}`)}">` +
         "</foreignObject>"
       );
     }
@@ -390,8 +514,10 @@ function renderCanvas() {
     const kindLabel = node.kind === "exit" ? "exit" : node.kind;
     const rx = node.kind === "source" ? 24 : node.kind === "exit" ? 4 : 8;
     const detail = nodeDetail(node);
+    const name = `${kindLabel} ${node.name}: ${detail}`;
     parts.push(
-      `<g class="node ${node.kind}${chosen ? " selected" : ""}" data-node-id="${escapeHtml(node.id)}" transform="translate(${node.x},${node.y})">` +
+      `<g class="node ${node.kind}${chosen ? " selected" : ""}" data-node-id="${escapeHtml(node.id)}" transform="translate(${node.x},${node.y})" ` +
+      `tabindex="0" role="button" aria-label="${escapeHtml(name)}" aria-pressed="${chosen ? "true" : "false"}" data-focus-key="${escapeHtml(`node:${node.id}`)}">` +
       `<title>${escapeHtml(node.name)}: ${escapeHtml(detail)}</title>` +
       `<rect class="body" width="${NODE_W}" height="${NODE_H}" rx="${rx}"></rect>` +
       `<text class="kind" x="12" y="16">${kindLabel}</text>` +
@@ -407,6 +533,10 @@ function renderCanvas() {
     parts.push(`<line class="pending" x1="${origin.x + NODE_W}" y1="${origin.y + NODE_H / 2}" x2="${gesture.point.x}" y2="${gesture.point.y}"></line>`);
   }
   canvas.innerHTML = parts.join("");
+  if (focusKey) {
+    const again = canvas.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);
+    if (again) again.focus({preventScroll: true});
+  }
 }
 
 function svgPoint(event) {
@@ -427,12 +557,24 @@ function nodeAt(point) {
   return null;
 }
 
+function focusCanvasItem(key) {
+  const item = canvas.querySelector(`[data-focus-key="${CSS.escape(key)}"]`);
+  if (item) item.focus({preventScroll: true});
+}
+
+function blurCanvas() {
+  // Redrawing restores focus to the focused canvas item, which would select it
+  // again, so a pointer selection first releases it.
+  if (canvas.contains(document.activeElement)) document.activeElement.blur();
+}
+
 canvas.addEventListener("pointerdown", (event) => {
   if (event.target.closest("input")) return;
   const point = svgPoint(event);
   const handle = event.target.closest(".handle");
   const group = event.target.closest(".node");
   const edge = event.target.closest(".edge-hit");
+  blurCanvas();
   if (handle && group) {
     gesture = {type: "connect", from: group.dataset.nodeId, point};
     event.preventDefault();
@@ -441,10 +583,13 @@ canvas.addEventListener("pointerdown", (event) => {
     gesture = {type: "move", id: node.id, dx: point.x - node.x, dy: point.y - node.y, moved: false};
     selection = {type: "node", id: node.id};
     renderAll();
+    focusCanvasItem(`node:${node.id}`);
     event.preventDefault();
   } else if (edge) {
     selection = {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
     renderAll();
+    focusCanvasItem(`edge:${edge.dataset.from}:${edge.dataset.to}`);
+    event.preventDefault();
   } else {
     selection = null;
     renderAll();
@@ -456,8 +601,10 @@ window.addEventListener("pointermove", (event) => {
   const point = svgPoint(event);
   if (gesture.type === "move") {
     const node = nodeById(gesture.id);
-    node.x = Math.round(Math.min(Math.max(point.x - gesture.dx, 0), WIDTH - NODE_W));
-    node.y = Math.round(Math.min(Math.max(point.y - gesture.dy, 0), HEIGHT - NODE_H));
+    // One drag is one undo step.
+    if (!gesture.moved) record(null);
+    node.x = Math.round(Math.min(Math.max(point.x - gesture.dx, 0), MAX_X - NODE_W));
+    node.y = Math.round(Math.min(Math.max(point.y - gesture.dy, 0), MAX_Y - NODE_H));
     gesture.moved = true;
   } else {
     gesture.point = point;
@@ -485,6 +632,7 @@ canvas.addEventListener("input", (event) => {
 });
 
 function setProbability(from, to, value, source) {
+  record(`prob:${from}:${to}`);
   const edge = state.edges.find((item) => item.from === from && item.to === to);
   edge.probability = value;
   // Keep the arrow field and the panel field showing the same value.
@@ -494,13 +642,157 @@ function setProbability(from, to, value, source) {
   update();
 }
 
-document.addEventListener("keydown", (event) => {
-  if (event.target.closest("input, select, textarea")) return;
-  if ((event.key === "Delete" || event.key === "Backspace") && selection) {
-    deleteSelection();
+function focusPanel() {
+  // The first field of the side panel, or the panel itself when it has none.
+  const field = panel.querySelector("input, select, button");
+  (field || panel).focus();
+}
+
+const MOVES = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
+
+canvas.addEventListener("keydown", (event) => {
+  if (event.target.closest("input")) return;
+  const group = event.target.closest(".node");
+  const edge = event.target.closest(".edge-hit");
+  if ((event.key === "Enter" || event.key === " ") && (group || edge)) {
+    selection = group
+      ? {type: "node", id: group.dataset.nodeId}
+      : {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
+    renderAll();
+    focusPanel();
+    event.preventDefault();
+  } else if (group && MOVES[event.key]) {
+    const node = nodeById(group.dataset.nodeId);
+    const step = event.shiftKey ? MOVE_STEP_LARGE : MOVE_STEP;
+    const [dx, dy] = MOVES[event.key];
+    // Arrow-key moves of one node in a row are one undo step.
+    record(`move:${node.id}`);
+    node.x = Math.min(Math.max(node.x + dx * step, 0), MAX_X - NODE_W);
+    node.y = Math.min(Math.max(node.y + dy * step, 0), MAX_Y - NODE_H);
+    renderCanvas();
+    update();
+    announce(`${node.name} moved to ${node.x}, ${node.y}.`);
     event.preventDefault();
   }
 });
+
+canvas.addEventListener("focusin", (event) => {
+  // Tabbing to a node or an arrow selects it, so the side panel follows focus.
+  const group = event.target.closest(".node");
+  const edge = event.target.closest(".edge-hit");
+  let next = null;
+  if (group) next = {type: "node", id: group.dataset.nodeId};
+  else if (edge) next = {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
+  if (!next || JSON.stringify(next) === JSON.stringify(selection)) return;
+  selection = next;
+  renderAll();
+});
+
+document.addEventListener("focusout", () => {
+  // Leaving a field ends its undo step.
+  editing = null;
+});
+
+document.addEventListener("keydown", (event) => {
+  const field = event.target.closest("input, select, textarea");
+  const key = event.key.toLowerCase();
+  if ((event.ctrlKey || event.metaKey) && !field) {
+    // A text field keeps the browser's own undo for its typing.
+    if (key === "z" && !event.shiftKey) {
+      undo();
+      event.preventDefault();
+    } else if ((key === "z" && event.shiftKey) || key === "y") {
+      redo();
+      event.preventDefault();
+    }
+    return;
+  }
+  if (field) return;
+  if (event.key === "Escape") {
+    gesture = null;
+    selection = null;
+    blurCanvas();
+    renderAll();
+    announce("Selection cleared.");
+  } else if ((event.key === "Delete" || event.key === "Backspace") && selection) {
+    const fromCanvas = canvas.contains(event.target);
+    deleteSelection();
+    // The deleted item had focus, so focus returns to the diagram.
+    if (fromCanvas) canvas.focus({preventScroll: true});
+    event.preventDefault();
+  }
+});
+
+// ---------- Arrange ----------
+
+// Left-to-right layers, as flowsim.plots.layout_layers draws model.diagram():
+// the exit alone in the last layer; other nodes by topological generations
+// when the routes are acyclic, else by their fewest steps from a source, with
+// a node that no source reaches in the first layer.
+function arrangeLayers() {
+  const exit = state.nodes.find((node) => node.kind === "exit");
+  const others = state.nodes.filter((node) => node.kind !== "exit").map((node) => node.id);
+  const inner = state.edges.filter((edge) => edge.from !== exit.id && edge.to !== exit.id);
+  const waiting = new Map(others.map((id) => [id, 0]));
+  for (const edge of inner) waiting.set(edge.to, waiting.get(edge.to) + 1);
+  const layers = [];
+  let layer = others.filter((id) => waiting.get(id) === 0);
+  let placed = 0;
+  while (layer.length) {
+    layers.push(layer);
+    placed += layer.length;
+    const next = [];
+    for (const id of layer) {
+      for (const edge of inner) {
+        if (edge.from !== id) continue;
+        waiting.set(edge.to, waiting.get(edge.to) - 1);
+        if (waiting.get(edge.to) === 0) next.push(edge.to);
+      }
+    }
+    layer = next;
+  }
+  if (placed < others.length) {
+    const steps = new Map();
+    const queue = state.nodes.filter((node) => node.kind === "source").map((node) => node.id);
+    for (const id of queue) steps.set(id, 0);
+    while (queue.length) {
+      const id = queue.shift();
+      for (const edge of inner) {
+        if (edge.from === id && !steps.has(edge.to)) {
+          steps.set(edge.to, steps.get(id) + 1);
+          queue.push(edge.to);
+        }
+      }
+    }
+    const deepest = Math.max(0, ...steps.values());
+    layers.length = 0;
+    for (let step = 0; step <= deepest; step += 1) {
+      layers.push(others.filter((id) => (steps.get(id) || 0) === step));
+    }
+  }
+  return [...layers.filter((items) => items.length), [exit.id]];
+}
+
+function arrange() {
+  record(null);
+  const layers = arrangeLayers();
+  // Columns spread across the canvas, up to 240 apart, but never closer than a
+  // node's width plus 40; a long chain widens the canvas instead.
+  const fit = layers.length > 1 ? (WIDTH - 60 - NODE_W) / (layers.length - 1) : 0;
+  const gap = Math.max(NODE_W + 40, Math.min(240, fit));
+  const rows = 95;
+  const tallest = Math.max(...layers.map((items) => items.length));
+  layers.forEach((items, column) => {
+    const top = Math.max(20, (Math.max(MIN_HEIGHT, tallest * rows + 60) - items.length * rows) / 2);
+    items.forEach((id, row) => {
+      const node = nodeById(id);
+      node.x = Math.round(30 + column * gap);
+      node.y = Math.round(top + row * rows);
+    });
+  });
+  renderAll();
+  announce(`Arranged ${state.nodes.length} nodes in ${layers.length} columns.`);
+}
 
 // ---------- Side panel ----------
 
@@ -639,11 +931,16 @@ panel.addEventListener("input", (event) => {
   }
   if (!selection || selection.type !== "node" || target.dataset.durationKind) return;
   const node = nodeById(selection.id);
+  // Only a field that edits the model records an undo step; choosing a route
+  // destination, for example, changes nothing until Add route.
   if (target.id === "field-name") {
+    record(target.id);
     node.name = target.value;
   } else if (target.dataset.duration) {
+    record(target.id);
     node.values[target.dataset.duration][target.dataset.key] = target.value;
   } else if (target.id.startsWith("field-")) {
+    record(target.id);
     node.values[target.id.slice("field-".length)] = target.value;
   } else {
     return;
@@ -656,16 +953,21 @@ panel.addEventListener("change", (event) => {
   const target = event.target;
   if (!target.dataset.durationKind || !selection) return;
   const node = nodeById(selection.id);
+  record(null);
   node.values[target.dataset.durationKind] = distributionSpec(target.value);
   renderAll();
+  document.getElementById(target.id).focus();
 });
 
 panel.addEventListener("click", (event) => {
   const target = event.target;
   if (target.id === "add-route") {
     addEdge(selection.id, document.getElementById("route-target").value);
+    // The panel was redrawn, so keyboard focus returns to the route controls.
+    (document.getElementById("route-target") || panel).focus();
   } else if (target.classList.contains("remove-route")) {
     removeEdge(target.dataset.from, target.dataset.to);
+    (document.getElementById("route-target") || panel).focus();
   } else if (target.id === "delete-node" || target.id === "delete-route") {
     deleteSelection();
   }
@@ -1095,7 +1397,9 @@ document.getElementById("load-json").addEventListener("change", async (event) =>
   const status = document.getElementById("file-status");
   if (!file) return;
   try {
-    state = fromJson(JSON.parse(await file.text()));
+    const loaded = fromJson(JSON.parse(await file.text()));
+    record(null);
+    state = loaded;
     selection = null;
     syncSettings();
     renderAll();
@@ -1107,6 +1411,7 @@ document.getElementById("load-json").addEventListener("change", async (event) =>
 });
 
 document.getElementById("clear-model").addEventListener("click", () => {
+  record(null);
   state = emptyState();
   selection = null;
   syncSettings();
@@ -1145,24 +1450,31 @@ function syncSettings() {
 }
 
 document.getElementById("time-unit").addEventListener("input", (event) => {
+  record("time-unit");
   state.time_unit = event.target.value;
   update();
 });
 document.getElementById("run-duration").addEventListener("input", (event) => {
+  record("run-duration");
   state.run.duration = event.target.value;
   update();
 });
 document.getElementById("run-seed").addEventListener("input", (event) => {
+  record("run-seed");
   state.run.seed = event.target.value;
   update();
 });
 document.getElementById("run-drain").addEventListener("change", (event) => {
+  record(null);
   state.run.drain = event.target.checked;
   update();
 });
 document.getElementById("add-source").addEventListener("click", () => addNode("source"));
 document.getElementById("add-station").addEventListener("click", () => addNode("station"));
 document.getElementById("delete-selected").addEventListener("click", deleteSelection);
+document.getElementById("undo").addEventListener("click", undo);
+document.getElementById("redo").addEventListener("click", redo);
+document.getElementById("arrange").addEventListener("click", arrange);
 
 // ---------- Rendering ----------
 
@@ -1172,6 +1484,7 @@ function update() {
   renderProblems();
   const exitSelected = selection && selection.type === "node" && nodeById(selection.id).kind === "exit";
   document.getElementById("delete-selected").disabled = !selection || exitSelected;
+  updateHistoryButtons();
 }
 
 function renderAll() {
