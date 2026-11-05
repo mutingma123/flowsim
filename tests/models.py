@@ -5,7 +5,8 @@ Editing an example for teaching reasons must not change these models.
 
 import json
 
-from flowsim import Model, moving_average, order_up_to
+from flowsim import Comparison, Model, compare, moving_average, order_up_to
+from flowsim.model import Node
 
 
 def deterministic_queue(capacity: int = 1) -> Model:
@@ -284,3 +285,74 @@ def embedded_json(page: str, element: str) -> object:
     """Return the JSON in a page's script element with the given id."""
     start = page.index(f'<script id="{element}" type="application/json">')
     return json.loads(page[page.index(">", start) + 1 : page.index("</script>", start)])
+
+
+def producing_factory() -> tuple[Model, Node, Node]:
+    """A linked one-stage chain whose factory produces, with no route yet."""
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=50,
+    )
+    factory = model.stock_point(
+        name="Factory",
+        initial=100,
+        lead_time=None,
+        batch_size=16,
+        shortage="backorder",
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+            cover=2,
+        ),
+        forecast_from="orders",
+    )
+    return model, consumers, factory
+
+
+def one_stage_chain(produce: bool) -> Model:
+    """A factory that either buys with a two-week lead time or makes on one press."""
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=50,
+    )
+    factory = model.stock_point(
+        name="Factory",
+        initial=100,
+        lead_time=None if produce else 2,
+        batch_size=16 if produce else None,
+        shortage="backorder",
+        # A constant lead time sets its own cover, and production needs one.
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+            cover=2 if produce else None,
+        ),
+        forecast_from="orders",
+    )
+    if produce:
+        press = model.station(
+            name="Press",
+            capacity=1,
+            service_time=1 / 64,
+        )
+        model.route([factory, press, factory])
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    return model
+
+
+def queue_comparison(replications: int, keep_records: bool = True) -> Comparison:
+    """deterministic_queue with one server ("One") and two ("Two"), closing at 7."""
+    return compare(
+        scenarios={
+            "One": deterministic_queue(),
+            "Two": deterministic_queue(capacity=2),
+        },
+        duration=7,
+        replications=replications,
+        keep_records=keep_records,
+    )

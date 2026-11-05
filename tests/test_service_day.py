@@ -277,6 +277,23 @@ def test_missing_outcomes_exclude_matched_pairs_and_report_the_count():
     assert differences["mean"] == pytest.approx((1 + 4 + 5) / 3)
 
 
+@pytest.fixture(scope="module")
+def drained_comparison() -> Comparison:
+    """One and two servers on deterministic_queue, drained after closing at 3.
+
+    Only tests that read it share it. A test that edits a run builds its own.
+    """
+    return compare(
+        scenarios={
+            "One": deterministic_queue(),
+            "Two": deterministic_queue(capacity=2),
+        },
+        duration=3,
+        replications=3,
+        drain=True,
+    )
+
+
 def test_comparison_rejects_missing_duplicate_and_unpaired_replications():
     result = compare(
         scenarios={
@@ -344,16 +361,11 @@ def test_comparison_rejects_incomparable_units_and_unknown_fields():
         result.intervals(confidence=1)
 
 
-def test_comparison_exports_run_counts_and_replication_definitions(tmp_path):
-    result = compare(
-        scenarios={
-            "One": deterministic_queue(),
-            "Two": deterministic_queue(capacity=2),
-        },
-        duration=3,
-        replications=3,
-        drain=True,
-    )
+def test_comparison_exports_run_counts_and_replication_definitions(
+    drained_comparison,
+    tmp_path,
+):
+    result = drained_comparison
     result.export(tmp_path)
     assert pl.read_csv(tmp_path / "runs.csv").height == 6
     assert pl.read_csv(tmp_path / "intervals.csv").height == 2
@@ -569,7 +581,7 @@ def test_experiments_reject_runs_of_different_models():
     )
 
 
-def test_experiment_and_comparison_intervals_share_defaults():
+def test_experiment_and_comparison_intervals_share_defaults(drained_comparison):
     # One server gives waits 0, 1, and 2 in every replication, and two servers
     # give 0, 0, and 0. Both default to the system's mean_total_wait, and a
     # station metric without station= covers every station.
@@ -588,15 +600,7 @@ def test_experiment_and_comparison_intervals_share_defaults():
         "station",
         "mean",
     ).rows() == [("mean_wait", "Service", 1.0)]
-    result = compare(
-        scenarios={
-            "One": deterministic_queue(),
-            "Two": deterministic_queue(capacity=2),
-        },
-        duration=3,
-        replications=3,
-        drain=True,
-    )
+    result = drained_comparison
     system = result.intervals()
     assert system.select(
         "scenario",
@@ -701,16 +705,8 @@ def test_comparison_viewer_and_plot_name_the_chosen_station():
         assert chosen in plot.data[0].hovertemplate
 
 
-def test_comparison_viewer_prints_a_fractional_confidence_level():
-    result = compare(
-        scenarios={
-            "One": deterministic_queue(),
-            "Two": deterministic_queue(capacity=2),
-        },
-        duration=3,
-        replications=3,
-        drain=True,
-    )
+def test_comparison_viewer_prints_a_fractional_confidence_level(drained_comparison):
+    result = drained_comparison
     assert "97.5%" in result.viewer(confidence=0.975).html
     assert "95%" in result.viewer(confidence=0.95).html
     assert "90%" in result.viewer(confidence=0.9).html
