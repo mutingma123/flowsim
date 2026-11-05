@@ -130,12 +130,12 @@ def locations(
     assert capacities is not None
     stations = list(capacities)
     stock_points = experiment.stock_point_names
-    # Every supply chain has a stock point, and no service network has one.
+    # The same test Results.report uses, so both agree on what a supply chain is.
     error = inapplicable(
         metric,
         stations=bool(stations),
         stock_points=bool(stock_points),
-        supply=bool(stock_points),
+        supply=experiment.runs[0].supply is not None,
     )
     if error is not None:
         raise error
