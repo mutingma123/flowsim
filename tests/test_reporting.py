@@ -2,11 +2,13 @@
 
 import inspect
 import json
+import math
 import re
 import webbrowser
 from dataclasses import FrozenInstanceError
 from pathlib import Path
 
+import numpy as np
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
@@ -16,10 +18,12 @@ from flowsim import (
     Experiment,
     Model,
     compare,
+    exponential,
     moving_average,
     order_up_to,
 )
-from flowsim.plots import layout_layers
+from flowsim.model import Node
+from flowsim.plots import chain_positions, layout_layers
 from flowsim.results import (
     STATION_METRICS,
     STATION_SCHEMA,
@@ -657,8 +661,253 @@ def test_diagram_of_a_complete_model_marks_nothing():
     model.route([station, model.exit])
     # Without a source, the station and the exit are unreachable.
     assert set(marked(model.diagram())) == {"Service<br>1 server", "Exit"}
-    with pytest.raises(ValueError, match="supply chain"):
-        beer_chain().diagram()
+    unlinked = Model(time_unit="weeks")
+    unlinked.demand(
+        name="Consumers",
+        per_period=50,
+    )
+    with pytest.raises(ValueError, match=r"Link them with model\.supply"):
+        unlinked.diagram()
+
+
+def chain_nodes(figure) -> dict[str, list[tuple[str, float, float]]]:
+    """Map each node trace's kind to its (label, x, y) points."""
+    return {
+        trace.meta: list(zip(trace.text, trace.x, trace.y)) for trace in figure.data
+    }
+
+
+def arrows(figure) -> list[tuple[float, float, float, float]]:
+    """Return each arrow's start and end, rounded, in drawing order."""
+    return [
+        tuple(round(value, 2) for value in (item.ax, item.ay, item.x, item.y))
+        for item in figure.layout.annotations
+        if item.showarrow
+    ]
+
+
+def test_chain_diagram_places_beer_game_stages_by_hand():
+    figure = beer_chain().diagram()
+    # Goods move from the supplier at x = 0 down the chain to consumers at x = 5.
+    assert chain_nodes(figure) == {
+        "supplier": [("Supplier", 0.0, 0.0)],
+        "stock_point": [
+            ("Retailer", 4.0, 0.0),
+            ("Wholesaler", 3.0, 0.0),
+            ("Distributor", 2.0, 0.0),
+            ("Factory", 1.0, 0.0),
+        ],
+        "demand": [("Consumers", 5.0, 0.0)],
+        "station": [],
+    }
+    # Each arrow stops 0.17 short of both nodes.
+    assert arrows(figure) == [
+        (x + 0.17, 0.0, x + 0.83, 0.0) for x in [0.0, 1.0, 2.0, 3.0, 4.0]
+    ]
+    # Each stock point's two-week lead time labels the arrow into it, and the
+    # arrow to consumers has none.
+    labels = [
+        (item.text, item.x) for item in figure.layout.annotations if not item.showarrow
+    ]
+    assert labels == [
+        ("2 weeks", 0.5),
+        ("2 weeks", 1.5),
+        ("2 weeks", 2.5),
+        ("2 weeks", 3.5),
+    ]
+    assert figure.layout.title.text == (
+        "Goods move left to right. Each arrow into a stock point shows its lead time."
+    )
+
+
+def test_chain_diagram_draws_production_below_the_producing_stage():
+    figure = one_stage_chain(produce=True).diagram()
+    assert chain_nodes(figure) == {
+        "supplier": [],
+        "stock_point": [("Factory", 0.0, 0.0)],
+        "demand": [("Consumers", 1.0, 0.0)],
+        "station": [("Press<br>1 server", 1.0, -1.0)],
+    }
+    # Factory to consumers, then the production route to the press and back.
+    # Each diagonal has unit vector (+-0.7071, -+0.7071) and shifts 0.08 to its
+    # own left. It stops 0.35 from the factory, past its label, and 0.17 from
+    # the press: e.g., the arrow down starts at 0.35 * 0.7071 + 0.08 * 0.7071
+    # = 0.30 and -0.35 * 0.7071 + 0.08 * 0.7071 = -0.19.
+    assert sorted(arrows(figure)) == [
+        (0.17, 0.0, 0.83, 0.0),
+        (0.3, -0.19, 0.94, -0.82),
+        (0.82, -0.94, 0.19, -0.3),
+    ]
+    assert not [item for item in figure.layout.annotations if not item.showarrow]
+    assert figure.layout.title.text == (
+        "Goods move left to right. The stations below the top stage make its goods."
+    )
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=50,
+    )
+    store = model.stock_point(
+        name="Store",
+        initial=100,
+        lead_time=exponential(mean=2),
+        shortage="backorder",
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+            cover=2,
+        ),
+        forecast_from="orders",
+    )
+    model.supply(
+        [consumers, store],
+        period=1,
+    )
+    figure = model.diagram()
+    labels = [item.text for item in figure.layout.annotations if not item.showarrow]
+    assert labels == ["Exponential(mean=2)"]
+
+
+def test_chain_diagram_spreads_a_production_line_across_columns():
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=50,
+    )
+    factory = model.stock_point(
+        name="Factory",
+        initial=100,
+        lead_time=None,
+        batch_size=16,
+        shortage="backorder",
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+            cover=2,
+        ),
+        forecast_from="orders",
+    )
+    cut, weld, paint = (
+        model.station(
+            name=name,
+            capacity=2,
+            service_time=0.01,
+        )
+        for name in ["Cut", "Weld", "Paint"]
+    )
+    model.route([factory, cut, weld, factory])
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    assert paint.name == "Paint"
+    # Paint is on no route, so it follows the two-step line instead of hiding.
+    stations = chain_nodes(model.diagram())["station"]
+    assert stations == [
+        ("Cut<br>2 servers", 1.0, -1.0),
+        ("Weld<br>2 servers", 2.0, -1.0),
+        ("Paint<br>2 servers", 3.0, -1.0),
+    ]
+
+
+def producing_factory() -> tuple[Model, Node, Node]:
+    """A linked one-stage chain whose factory produces, with no route yet."""
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=50,
+    )
+    factory = model.stock_point(
+        name="Factory",
+        initial=100,
+        lead_time=None,
+        batch_size=16,
+        shortage="backorder",
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+            cover=2,
+        ),
+        forecast_from="orders",
+    )
+    return model, consumers, factory
+
+
+def test_chain_diagram_keeps_branch_arrows_clear_of_other_stations():
+    model, consumers, factory = producing_factory()
+    a, b, c, d = (
+        model.station(
+            name=name,
+            capacity=1,
+            service_time=0.01,
+        )
+        for name in "ABCD"
+    )
+    model.branch(factory, {a: 0.3, b: 0.3, c: 0.4})
+    for station in (a, b, c):
+        model.route([station, d])
+    model.route([d, factory])
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    # A, B, and C are one step from the factory, so they stack in column 1;
+    # D is two steps away, in column 2.
+    assert chain_positions(model) == {
+        "Factory": (0.0, 0.0),
+        "Consumers": (1.0, 0.0),
+        "A": (1.0, -1.0),
+        "B": (1.0, -2.0),
+        "C": (1.0, -3.0),
+        "D": (2.0, -1.0),
+    }
+    positions = list(chain_positions(model).values())
+    for x0, y0, x1, y1 in arrows(model.diagram()):
+        for x, y in positions:
+            if min(math.dist((x, y), (x0, y0)), math.dist((x, y), (x1, y1))) < 0.5:
+                continue
+            # The closest point of the arrow to a node it does not join.
+            share = ((x - x0) * (x1 - x0) + (y - y0) * (y1 - y0)) / (
+                (x1 - x0) ** 2 + (y1 - y0) ** 2
+            )
+            share = min(max(share, 0), 1)
+            closest = (x0 + share * (x1 - x0), y0 + share * (y1 - y0))
+            assert math.dist((x, y), closest) > 0.3
+
+
+def test_chain_diagram_draws_an_unfinished_producer_and_numpy_lead_times():
+    model, consumers, factory = producing_factory()
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    assert chain_positions(model) == {"Factory": (0.0, 0.0), "Consumers": (1.0, 0.0)}
+    with pytest.raises(ValueError):
+        model.diagram(check=True)
+    for lead_time in (np.int64(2), np.float32(2)):
+        model = Model(time_unit="weeks")
+        consumers = model.demand(
+            name="Consumers",
+            per_period=50,
+        )
+        store = model.stock_point(
+            name="Store",
+            initial=100,
+            lead_time=lead_time,
+            shortage="backorder",
+            policy=order_up_to(
+                forecast=moving_average(window=1),
+                safety_factor=0,
+            ),
+            forecast_from="orders",
+        )
+        model.supply(
+            [consumers, store],
+            period=1,
+        )
+        figure = model.diagram()
+        labels = [item.text for item in figure.layout.annotations if not item.showarrow]
+        assert labels == ["2 weeks"]
 
 
 def one_stage_chain(produce: bool) -> Model:
@@ -747,3 +996,56 @@ def test_run_level_metrics_apply_to_a_supply_chain_without_stations():
         experiment.intervals("mean_total_wait")
     system = beer_chain().run(duration=20).report().filter(pl.col("scope") == "system")
     assert system["metric"].to_list() == ["overtime", "end_time"]
+
+
+def test_dropped_records_keep_every_measure_and_explain_the_loss(tmp_path):
+    kept = service_network().experiment(
+        duration=120,
+        replications=3,
+        seed=5,
+    )
+    dropped = service_network().experiment(
+        duration=120,
+        replications=3,
+        seed=5,
+        keep_records=False,
+    )
+    # The same seeds give the same runs, so every measure must match exactly.
+    for table in ["summary", "stations", "stock_points"]:
+        assert_frame_equal(getattr(kept, table), getattr(dropped, table))
+    assert_frame_equal(kept.intervals(), dropped.intervals())
+    assert_frame_equal(kept.runs[0].report(), dropped.runs[0].report())
+    run = dropped.runs[0]
+    for table in ["customers", "visits", "states", "activities", "failures"]:
+        with pytest.raises(AttributeError, match="keep_records=True"):
+            getattr(run, table)
+    for call in [
+        lambda: run.plot_queue(),
+        lambda: run.plot_customer(1),
+        lambda: run.viewer(),
+        lambda: run.export(tmp_path / "run"),
+    ]:
+        with pytest.raises(ValueError, match="reads raw records"):
+            call()
+    assert "Raw records were dropped" in repr(run)
+    assert "Raw records were dropped" in repr(dropped)
+    assert "Raw records were dropped" not in repr(kept)
+    dropped.export(tmp_path / "experiment")
+    assert (tmp_path / "experiment" / "stations.csv").exists()
+    with pytest.raises(ValueError, match="keep_records must be True or False"):
+        service_network().experiment(
+            duration=120,
+            keep_records="no",
+        )
+
+
+def test_compare_passes_keep_records_to_each_scenario():
+    comparison = compare(
+        scenarios={"One": service_network(1), "Two": service_network(2)},
+        duration=120,
+        replications=2,
+        keep_records=False,
+    )
+    for experiment in comparison.experiments.values():
+        assert all(not run._records_kept for run in experiment.runs)
+    assert comparison.differences().height > 0

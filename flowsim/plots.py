@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import math
+from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,7 +14,8 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.offline import get_plotlyjs
 
-from flowsim.results import METRICS, Phase, Status, unknown
+from flowsim.distributions import Distribution
+from flowsim.results import METRICS, SUPPLIER, Phase, Status, unknown
 from flowsim.validation import integer
 
 if TYPE_CHECKING:
@@ -256,6 +258,196 @@ def network_diagram(model: Model, problems: dict[str, str]) -> go.Figure:
                 max(y for _, y in positions.values()) + 0.35,
             ],
         },
+        margin={"l": 50, "r": 50, "t": 50, "b": 80},
+    )
+    return figure
+
+
+def chain_positions(model: Model) -> dict[str, tuple[float, float]]:
+    """Place a supply chain's stages in one row, with goods moving left to right.
+
+    The outside supplier sits at x = 0 unless the top stage produces. The stock
+    points follow from the top of the chain down to the stage nearest
+    consumers, and demand comes last, all at y = 0. A producing stage's
+    stations sit in the rows below and to the right of it: a station k steps
+    along the production route from the stage is k columns to its right, and
+    stations at the same step stack downward from y = -1, so the arrows of a
+    branch leave the stage at different slopes. A station on no production
+    route follows the line in the row y = -1.
+    """
+    supply = model.supply_chain
+    assert supply is not None
+    top = supply.stock_points[-1]
+    produces = top.lead_time is None
+    order = [] if produces else [SUPPLIER]
+    order += [node.name for node in reversed(supply.stock_points)]
+    order.append(supply.demand.name)
+    positions = {name: (float(x), 0.0) for x, name in enumerate(order)}
+    if produces:
+        line = nx.DiGraph(model.graph)
+        line.remove_node(model.exit.name)
+        # A stock point enters the graph only with its first route, and an
+        # unfinished model may not have one yet.
+        line.add_node(top.name)
+        # The return to the producing stage closes a loop, so it is left out.
+        line.remove_edges_from(list(line.in_edges(top.name)))
+        steps = nx.single_source_shortest_path_length(line, top.name)
+        column = positions[top.name][0]
+        stacked: dict[int, int] = {}
+        for name, step in steps.items():
+            if name == top.name:
+                continue
+            row = stacked.get(step, 0)
+            stacked[step] = row + 1
+            positions[name] = (column + step, -1.0 - row)
+    # A station on no production route is drawn after the line, not hidden.
+    unrouted = [
+        node.name
+        for node in model.nodes.values()
+        if node.kind == "station" and node.name not in positions
+    ]
+    start = max((x for x, y in positions.values() if y < 0), default=-1.0) + 1
+    for index, name in enumerate(unrouted):
+        positions[name] = (start + index, -1.0)
+    return positions
+
+
+def lead_time_label(lead_time: object, time_unit: str) -> str:
+    """Show a lead time as a number with its unit, a distribution, or 'random'."""
+    if isinstance(lead_time, Distribution):
+        return repr(lead_time)
+    if callable(lead_time):
+        return "random"
+    # Stock points accept any real scalar, including NumPy numbers.
+    assert isinstance(lead_time, Real)
+    return f"{float(lead_time):g} {time_unit}"
+
+
+def chain_diagram(model: Model) -> go.Figure:
+    """Draw a supply chain's stages left to right with lead times on the arrows.
+
+    Each arrow into a stock point carries that stock point's lead time. A
+    producing stage's stations sit below it with their production route.
+    """
+    supply = model.supply_chain
+    assert supply is not None
+    positions = chain_positions(model)
+    names = list(positions)
+    # The chain row was placed first, in left-to-right order.
+    row = [name for name in names if positions[name][1] == 0]
+    shipments = list(zip(row, row[1:]))
+    stages = {node.name: node for node in supply.stock_points}
+    production = [
+        (origin, target)
+        for origin, target in model.graph.edges
+        if model.exit.name not in (origin, target)
+    ]
+
+    def label_gap(name: str) -> float:
+        """Return the distance below a node that clears its label."""
+        # A station's label has a second line for its servers.
+        node = model.nodes.get(name)
+        return 0.5 if node is not None and node.kind == "station" else 0.35
+
+    figure = go.Figure()
+    for origin, target in [*shipments, *production]:
+        x_start, y_start = positions[origin]
+        x_end, y_end = positions[target]
+        dx, dy = x_end - x_start, y_end - y_start
+        length = math.hypot(dx, dy)
+        ux, uy = dx / length, dy / length
+        # An arrow whose reverse also exists shifts to its own left, so a
+        # one-station production route draws two separate arrows.
+        twin = (target, origin) in production
+        shift = 0 if not twin else 0.2 if abs(dy) > abs(dx) else 0.08
+        # Labels sit below the nodes, so an arrow that leaves a node downward
+        # or reaches one from below stops farther away, past the label.
+        leave = label_gap(origin) if uy < -0.5 else 0.17
+        reach = label_gap(target) if uy > 0.5 else 0.17
+        figure.add_annotation(
+            x=x_end - reach * ux - shift * uy,
+            y=y_end - reach * uy + shift * ux,
+            ax=x_start + leave * ux - shift * uy,
+            ay=y_start + leave * uy + shift * ux,
+            xref="x",
+            yref="y",
+            axref="x",
+            ayref="y",
+            showarrow=True,
+            arrowhead=2,
+            arrowwidth=2,
+            arrowcolor=GRAY,
+            text="",
+        )
+        if (origin, target) in shipments and target in stages:
+            figure.add_annotation(
+                x=(x_start + x_end) / 2,
+                y=0.12,
+                text=label(lead_time_label(stages[target].lead_time, model.time_unit)),
+                showarrow=False,
+                bgcolor="white",
+            )
+    kinds = [
+        ("supplier", GREEN, [SUPPLIER] if SUPPLIER in positions else []),
+        ("stock_point", BLUE, list(stages)),
+        ("demand", ORANGE, [supply.demand.name]),
+        ("station", PURPLE, [name for name in names if positions[name][1] < 0]),
+    ]
+    for kind, color, members in kinds:
+        text = []
+        for name in members:
+            node = model.nodes.get(name)
+            shown = label(name)
+            if node is not None and node.kind == "station":
+                suffix = "server" if node.capacity == 1 else "servers"
+                shown += f"<br>{node.capacity} {suffix}"
+            text.append(shown)
+        figure.add_trace(
+            go.Scatter(
+                x=[positions[name][0] for name in members],
+                y=[positions[name][1] for name in members],
+                mode="markers+text",
+                text=text,
+                textposition="bottom center",
+                marker={
+                    "size": 30,
+                    "color": color,
+                    "line": {"color": "black", "width": 1},
+                },
+                hovertemplate="%{text}<extra></extra>",
+                meta=kind,
+                showlegend=False,
+            )
+        )
+    title = "Goods move left to right."
+    if any(target in stages for _, target in shipments):
+        title += " Each arrow into a stock point shows its lead time."
+    if any(y < 0 for _, y in positions.values()):
+        title += " The stations below the top stage make its goods."
+    figure.update_layout(
+        title={
+            "text": title,
+            "font": {"size": 14},
+        },
+    )
+    style(
+        figure=figure,
+        x_label="",
+        y_label="",
+    )
+    lowest = min(y for _, y in positions.values())
+    # A short chain keeps the spacing of a five-column one, so arrows and their
+    # offsets keep their size instead of stretching across the width.
+    right = max(x for x, _ in positions.values())
+    span = max(right + 0.9, 5)
+    middle = right / 2
+    figure.update_layout(
+        height=300 + 100 * int(-lowest),
+        xaxis={
+            "visible": False,
+            "range": [middle - span / 2, middle + span / 2],
+        },
+        yaxis={"visible": False, "range": [lowest - 0.65, 0.45]},
         margin={"l": 50, "r": 50, "t": 50, "b": 80},
     )
     return figure

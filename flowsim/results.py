@@ -1851,6 +1851,24 @@ def moved_settings(owner: str, names: list[str]) -> dict[str, str]:
     return {name: f"The setting moved: use {owner}.settings.{name}." for name in names}
 
 
+# A run's raw record tables, which model.experiment(..., keep_records=False)
+# drops once the run's measures are computed.
+RAW_TABLES = (
+    "customers",
+    "visits",
+    "states",
+    "activities",
+    "failures",
+    "inventory",
+    "shipments",
+)
+
+_DROPPED = (
+    "This run's raw records were dropped by model.experiment(..., "
+    "keep_records=False). Rerun with keep_records=True to keep them."
+)
+
+
 class Results:
     """The records and measures of one simulation run.
 
@@ -1936,6 +1954,7 @@ class Results:
                 for old, new in self._RENAMED.items()
             }
         )
+        hints.update({table: _DROPPED for table in RAW_TABLES})
         hints["intervals"] = (
             "A single run has no replications. Run model.experiment(...) for intervals."
         )
@@ -1958,6 +1977,17 @@ class Results:
         capacities = self.settings.capacities
         assert capacities is not None
         return capacities
+
+    def _drop_records(self) -> None:
+        """Delete the raw record tables and keep the measures."""
+        for name in RAW_TABLES:
+            delattr(self, name)
+        self._records_kept = False
+
+    def _require_records(self, call: str) -> None:
+        """Raise a clear error when a call needs raw records that were dropped."""
+        if not self._records_kept:
+            raise ValueError(f"results.{call} reads raw records. {_DROPPED}")
 
     def __repr__(self) -> str:
         return display_text(*self._display())
@@ -2011,6 +2041,14 @@ class Results:
                 rows.append((label if index == 0 else "", f"{row[name]}: {detail}"))
             if len(frame) > shown:
                 rows.append(("", f"... and {len(frame) - shown} more"))
+        if not self._records_kept:
+            kept = [name for name in self._table_names() if name not in RAW_TABLES]
+            rows += [
+                ("Tables", ", ".join(kept)),
+                ("", "Raw records were dropped by keep_records=False."),
+                ("Next", "results.report(), flowsim.explain(name)"),
+            ]
+            return f"Results: {kind}, {settings.duration:g} {settings.time_unit}", rows
         rows.append(("Tables", ", ".join(self._table_names())))
         plots = (
             "results.plot_queue(), results.plot_wait(), results.plot_utilization()"
@@ -2086,6 +2124,7 @@ class Results:
         self.stations = self._station_metrics()
         self.summary = self._system_metrics()
         self.stock_points = self._stock_point_metrics()
+        self._records_kept = True
 
     def _station_areas(self) -> pl.DataFrame:
         """Integrate each station's state counts over [warmup, duration).
@@ -2499,6 +2538,7 @@ class Results:
         -------
         >>> results.plot_queue("Desk").show()
         """
+        self._require_records("plot_queue()")
         from flowsim.plots import plot_queue, require_stations
 
         require_stations(self)
@@ -2522,6 +2562,7 @@ class Results:
         -------
         >>> results.plot_wait("Desk").show()
         """
+        self._require_records("plot_wait()")
         from flowsim.plots import plot_wait, require_stations
 
         require_stations(self)
@@ -2545,6 +2586,7 @@ class Results:
         -------
         >>> results.plot_utilization().show()
         """
+        self._require_records("plot_utilization()")
         from flowsim.plots import plot_utilization, require_stations
 
         require_stations(self)
@@ -2568,6 +2610,7 @@ class Results:
         -------
         >>> results.plot_resources("Desk").show()
         """
+        self._require_records("plot_resources()")
         from flowsim.plots import plot_resources, require_stations
 
         require_stations(self)
@@ -2591,6 +2634,7 @@ class Results:
         -------
         >>> results.plot_customer(1).show()
         """
+        self._require_records("plot_customer()")
         from flowsim.plots import plot_customer
 
         return plot_customer(self, customer_id)
@@ -2615,6 +2659,7 @@ class Results:
         -------
         >>> results.plot_inventory("Store").show()
         """
+        self._require_records("plot_inventory()")
         from flowsim.plots import plot_inventory
 
         return plot_inventory(self, stock_point=stock_point)
@@ -2631,6 +2676,7 @@ class Results:
         -------
         >>> results.plot_orders().show()
         """
+        self._require_records("plot_orders()")
         from flowsim.plots import plot_orders
 
         return plot_orders(self)
@@ -2655,6 +2701,7 @@ class Results:
         -------
         >>> results.viewer("output/run.html")
         """
+        self._require_records("viewer()")
         from flowsim.plots import supply_viewer_html, viewer_html
 
         if self._supply is None:
@@ -2697,6 +2744,7 @@ class Results:
         -------
         >>> results.export("output/my-run")
         """
+        self._require_records("export()")
         destination = Path(directory)
         destination.mkdir(
             parents=True,
@@ -2834,6 +2882,11 @@ class Experiment:
             ("Next", "experiment.intervals(metric), experiment.plot()"),
             ("", "experiment.viewer(), experiment.export(folder), flowsim.metrics()"),
         ]
+        if not self.runs[0]._records_kept:
+            rows.insert(
+                3,
+                ("Records", "Raw records were dropped by keep_records=False."),
+            )
         kind = "service network" if self.runs[0]._supply is None else "supply chain"
         return f"Experiment: {len(self.runs)} replications of a {kind}", rows
 

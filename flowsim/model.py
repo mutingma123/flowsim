@@ -13,7 +13,7 @@ import numpy as np
 
 from flowsim.distributions import Distribution
 from flowsim.engine import simulate
-from flowsim.plots import network_diagram
+from flowsim.plots import chain_diagram, network_diagram
 from flowsim.policies import OrderUpTo
 from flowsim.results import (
     SUPPLIER,
@@ -1380,13 +1380,16 @@ class Model:
                 stack.extend(destination for destination, _ in rule)
 
     def diagram(self, check: bool = False) -> Figure:
-        """Draw the service network's sources, stations, exit, and routes.
+        """Draw the model's nodes and routes, or its supply chain.
 
-        With check=False, an incomplete model still draws. A node that no
-        source reaches and a source or station with no onward route are drawn
-        in red, with the reason on hover. With check=True, the model is
-        validated first, so an incomplete model raises the error that run()
-        would raise.
+        A service network draws its sources, stations, exit, and routes. With
+        check=False, an incomplete model still draws. A node that no source
+        reaches and a source or station with no onward route are drawn in red,
+        with the reason on hover. With check=True, the model is validated
+        first, so an incomplete model raises the error that run() would raise.
+        A supply chain draws the outside supplier, its stock points, and
+        demand in one row, with each stock point's lead time on the arrow into
+        it and a producing stage's stations below it.
 
         Parameters
         ----------
@@ -1396,7 +1399,7 @@ class Model:
         Returns
         -------
         plotly.graph_objects.Figure
-            The network diagram. It does not apply to a supply chain.
+            The network or supply-chain diagram.
 
         Example
         -------
@@ -1407,11 +1410,12 @@ class Model:
             raise ValueError("check must be True or False.")
         if check:
             self.validate()
-        if self._supply is not None or any(
-            node.kind not in NETWORK_KINDS for node in self._nodes.values()
-        ):
+        if self._supply is not None:
+            return chain_diagram(self)
+        if any(node.kind not in NETWORK_KINDS for node in self._nodes.values()):
             raise ValueError(
-                "diagram draws service networks, and this model has a supply chain."
+                "This model has demand or stock points but no supply chain yet. "
+                "Link them with model.supply([demand, ...], period=...) to draw it."
             )
         return network_diagram(
             model=self,
@@ -1523,8 +1527,9 @@ class Model:
         *,
         warmup: float = 0,
         drain: bool = False,
+        keep_records: bool = True,
     ) -> Experiment:
-        """Run independent replications and retain each run's raw results.
+        """Run independent replications, keeping each run's raw records by default.
 
         The seed argument seeds one numpy SeedSequence, which spawns an
         independent seed for each replication. The same seed therefore repeats
@@ -1543,6 +1548,13 @@ class Model:
             Initial period excluded from measurement in each run.
         drain : bool, default False
             Whether each run continues past duration until no customers remain.
+        keep_records : bool, default True
+            Whether each run keeps its raw records (customers, visits, states,
+            activities, failures, inventory, and shipments). False drops them
+            once the run's measures are computed, which saves memory in long
+            or many runs. The experiment's tables, intervals, plots, viewer,
+            and export are unchanged, while a single run's plots, viewer, and
+            export then raise an error.
 
         Returns
         -------
@@ -1554,6 +1566,8 @@ class Model:
         >>> experiment = model.experiment(duration=480, replications=30, seed=1)
         >>> experiment.summary
         """
+        if not isinstance(keep_records, bool):
+            raise ValueError("keep_records must be True or False.")
         count = integer(
             value=replications,
             label="Replications",
@@ -1566,15 +1580,19 @@ class Model:
                 minimum=0,
             )
         ).spawn(count)
-        runs = [
-            self.run(
+        runs = []
+        for child in seeds:
+            run = self.run(
                 duration=duration,
                 seed=int(child.generate_state(1)[0]),
                 warmup=warmup,
                 drain=drain,
             )
-            for child in seeds
-        ]
+            # Drop each run's records before the next run starts, so memory
+            # holds one run's records at a time.
+            if not keep_records:
+                run._drop_records()
+            runs.append(run)
         return Experiment(runs)
 
 

@@ -467,13 +467,14 @@ def compare(
     seed: int = 42,
     warmup: float = 0,
     drain: bool = False,
+    keep_records: bool = True,
 ) -> Comparison:
     """Run named scenarios using the same independent replication seeds.
 
     Each scenario runs Model.experiment with the same duration, replications,
-    seed, warmup, and drain, so replication k uses the same seed in every
-    scenario. The scenarios must declare the same time unit, and the first is
-    the baseline.
+    seed, warmup, drain, and keep_records, so replication k uses the same seed
+    in every scenario. The scenarios must declare the same time unit, and the
+    first is the baseline.
 
     Parameters
     ----------
@@ -489,6 +490,9 @@ def compare(
         Initial period excluded from measurement in each run.
     drain : bool, default False
         Whether each run continues past duration until no customers remain.
+    keep_records : bool, default True
+        Whether each run keeps its raw records. False drops them once the run's
+        measures are computed, as in Model.experiment.
 
     Returns
     -------
@@ -521,6 +525,7 @@ def compare(
                 seed=seed,
                 warmup=warmup,
                 drain=drain,
+                keep_records=keep_records,
             )
             for name, model in scenarios.items()
         }

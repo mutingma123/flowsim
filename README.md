@@ -259,7 +259,10 @@ Printing a model lists its nodes, its routes, and whether it passes validation.
 `check=False`, an incomplete model still draws, and a node that no source
 reaches or a source or station without an onward route appears in red with the
 reason on hover. `model.diagram(check=True)` instead raises the error that `run`
-would raise.
+would raise. For a supply chain, `model.diagram()` draws the outside supplier,
+the stock points, and demand in one row with goods moving left to right, labels
+the arrow into each stock point with its lead time, and places a producing
+stage's stations below it.
 
 In code, `model.nodes` maps each name to its node in definition order, and
 `model.graph` returns a frozen NetworkX copy of the routes with each edge's
@@ -935,7 +938,7 @@ files alone. Table columns in Reference lists every column of these files.
 ### Replications
 
 `model.experiment` runs independent replications with distinct seeds derived
-from one seed and keeps each run's raw results in `experiment.runs`.
+from one seed and, by default, keeps each run's raw records in `experiment.runs`.
 
 ```python
 from flowsim import Model, exponential, uniform
@@ -991,6 +994,13 @@ another node leaves a node's own draws unchanged, while renaming a node gives it
 new streams. An experiment's export writes `runs.csv` (the stacked summary
 tables), `stations.csv`, `stock_points.csv` for a supply chain, `intervals.csv`
 for the requested metric, and `metadata.json`.
+
+`keep_records=False` drops each run's raw records (customers, visits, states,
+activities, failures, inventory, and shipments) once the run's measures are
+computed, which keeps memory low for long runs or many replications. The
+experiment's tables, intervals, plots, viewer, and export are unchanged, while a
+single run's plots, viewer, and export then raise an error that names the
+argument. `flowsim.compare` accepts the same argument.
 
 ### Scenario comparisons
 
