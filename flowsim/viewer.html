@@ -34,6 +34,10 @@
     #customers tbody tr { cursor: pointer; }
     #customers tbody tr:hover { background: #eef5fa; }
     #notice { border-left: 4px solid #0072b2; padding-left: 14px; }
+    .series { display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 8px 0 4px; }
+    .series label, .switch { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+    .series input, .switch input { padding: 0; margin: 0; }
+    .swatch { display: inline-block; width: 22px; height: 10px; border-top: 3px solid; }
     @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } .cards { grid-template-columns: 1fr 1fr; } main { padding: 14px; } }
   </style>
   <script>__PLOTLY_JS__</script>
@@ -57,8 +61,9 @@
     <div class="grid">
       <div>
         <h2>Queue and service history</h2>
-        <p class="muted">Drag to zoom, hover for counts, or adjust the time range below the chart. When service continues after closing, the dashed line marks closing.</p>
+        <p class="muted">Drag to zoom, hover for counts, or adjust the time range below the chart. When service continues after closing, the dashed line marks closing. The boxes below the chart, or a click on a legend entry, show or hide a line for every station.</p>
         <div class="chart" id="queues"></div>
+        <div class="series" id="queues-series"></div>
       </div>
       <div>
         <h2>Waiting-time distribution</h2>
@@ -110,8 +115,12 @@
   </section>
   <section id="resources-section" hidden>
     <h2>Processing, availability, and interruptions</h2>
-    <p class="muted">Occupied capacity includes processing, paused work, and blocked jobs. The chart separates those states. Down servers can also hold paused jobs. Scheduled and available counts describe staffing and repairs.</p>
+    <div class="toolbar">
+      <label class="switch"><input type="checkbox" id="resources-stacked"> Stack the server states</label>
+    </div>
+    <p class="muted" id="resources-reading"></p>
     <div class="chart" id="resources"></div>
+    <div class="series" id="resources-series"></div>
     <div class="table-wrap"><table id="resource-stats"></table></div>
     <h2>Failure and repair records</h2>
     <p class="muted">Repairs are independent for each server. Missing repair ends indicate repairs still in progress when customer service ended.</p>
@@ -202,19 +211,77 @@
   result.stations.forEach(row => {
     const option = document.createElement("option"); option.value = row.station; option.textContent = row.station; stationChoice.append(option);
   });
-  const plotsReady = Promise.all(Object.entries(result.figures).map(([id, figure]) => {
+  function fitLayout(id, figure) {
     delete figure.layout.width; figure.layout.autosize = true;
     if (id !== "utilization") figure.layout.height = 390;
     delete figure.layout.updatemenus;
+  }
+  if (result.stacked_resources) fitLayout("resources", result.stacked_resources);
+  const plotsReady = Promise.all(Object.entries(result.figures).map(([id, figure]) => {
+    fitLayout(id, figure);
     return Plotly.newPlot(id, figure.data, figure.layout, config);
   }));
-  stationChoice.addEventListener("change", async () => {
-    await plotsReady;
-    // Each station trace carries its station name as meta, as in plots.station_menu.
+  // Each chart's line choices by trace name, which persist across station
+  // changes and the stacked switch. A cleared line stays in the legend, dimmed.
+  const shown = {queues: {}, resources: {}};
+  const drawn = {queues: result.figures.queues, resources: result.figures.resources};
+  const stackedChoice = document.getElementById("resources-stacked");
+  const readings = {
+    lines: "Occupied capacity includes processing, paused work, and blocked jobs. The chart separates those states. Down servers can also hold paused jobs, so the lines overlap. Scheduled and available counts describe staffing and repairs.",
+    stacked: "Each server counts in one layer: processing, blocked, or paused while it holds a job, down while it is under repair without a job, and idle while it is on duty, up, and free. The layers reach the dashed scheduled line, except while a server that went off duty still holds a job or is under repair."
+  };
+  // Each station trace carries its station name as meta, as in plots.station_menu.
+  function applyChoices(id) {
     const station = stationChoice.value;
-    ["queues", "waits", "resources"].filter(id => result.figures[id]).forEach(id => {
-      Plotly.restyle(id, {visible: result.figures[id].data.map(trace => trace.meta === station)});
+    return Plotly.restyle(id, {visible: drawn[id].data.map(trace =>
+      trace.meta !== station ? false : shown[id][trace.name] === false ? "legendonly" : true)});
+  }
+  function seriesBoxes(id) {
+    const box = document.getElementById(id + "-series");
+    box.replaceChildren();
+    [...new Set(drawn[id].data.map(trace => trace.name))].forEach(name => {
+      const trace = drawn[id].data.find(item => item.name === name);
+      const choice = document.createElement("label");
+      const input = document.createElement("input");
+      input.type = "checkbox"; input.checked = shown[id][name] !== false; input.dataset.series = name;
+      input.addEventListener("change", () => { shown[id][name] = input.checked; applyChoices(id); });
+      const swatch = document.createElement("span"); swatch.className = "swatch";
+      swatch.style.borderTopColor = trace.line.color;
+      swatch.style.borderTopStyle = trace.line.dash === "dash" ? "dashed" : "solid";
+      if (trace.fillcolor) swatch.style.background = trace.fillcolor;
+      const text = document.createElement("span"); text.textContent = name;
+      choice.append(input, swatch, text); box.append(choice);
     });
+  }
+  function legendChoices(id) {
+    const chart = document.getElementById(id);
+    // A legend click toggles the same choice as the box, for every station.
+    chart.on("plotly_legendclick", event => {
+      const name = event.data[event.curveNumber].name;
+      shown[id][name] = shown[id][name] === false;
+      seriesBoxes(id); applyChoices(id);
+      return false;
+    });
+    chart.on("plotly_legenddoubleclick", () => false);
+  }
+  const choicesReady = plotsReady.then(() => {
+    Object.keys(drawn).filter(id => drawn[id]).forEach(id => { seriesBoxes(id); legendChoices(id); });
+    if (drawn.resources) document.getElementById("resources-reading").textContent = readings.lines;
+  });
+  stackedChoice.addEventListener("change", async () => {
+    await choicesReady;
+    const stacked = stackedChoice.checked;
+    drawn.resources = stacked ? result.stacked_resources : result.figures.resources;
+    document.getElementById("resources-reading").textContent = stacked ? readings.stacked : readings.lines;
+    await Plotly.react("resources", drawn.resources.data, drawn.resources.layout, config);
+    seriesBoxes("resources");
+    await applyChoices("resources");
+  });
+  stationChoice.addEventListener("change", async () => {
+    await choicesReady;
+    const station = stationChoice.value;
+    if (result.figures.waits) Plotly.restyle("waits", {visible: result.figures.waits.data.map(trace => trace.meta === station)});
+    Object.keys(drawn).filter(id => drawn[id]).forEach(applyChoices);
   });
   function showCustomer() {
     const id = Number(document.getElementById("customer-choice").value);
@@ -288,7 +355,7 @@
   }
   document.getElementById("download-customers").addEventListener("click", () => download("customers.csv", result.customers, result.columns.customers));
   document.getElementById("download-visits").addEventListener("click", () => download("visits.csv", result.visits, result.columns.visits));
-  window.flowsimReady = plotsReady;
+  window.flowsimReady = choicesReady;
 </script>
 </body>
 </html>

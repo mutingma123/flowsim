@@ -927,12 +927,24 @@ station in one chart.
 `results.plot_resources()` draws each station's scheduled, available,
 processing, blocked, paused, and down servers over time. The viewer includes it
 when a model uses staffing schedules, finite buffers, or failures (see Model
-features).
+features). These lines overlap, since a down server holding a paused job counts
+as both paused and down. `results.plot_resources(stacked=True)` instead counts
+each server in one layer, i.e., processing, blocked, or paused while it holds a
+job, down while it is under repair without a job, and idle while it is on duty,
+up, and free, and it draws the scheduled count as a dashed line over the stack.
+The layers reach that line except while a server that went off duty still holds
+a job or is under repair. The states table records each count on its own and
+cannot say which down servers hold a job, so FlowSim rebuilds the layers from
+each server's intervals in the activities and failures tables and from the
+states table's scheduled count.
 
 The viewer has linked station selection for queue histories and wait
 distributions, zoom and hover controls, utilization, a customer timeline,
-paginated customer records, status filtering, and CSV downloads. It reports
-unfinished customers alongside completed-customer averages.
+paginated customer records, status filtering, and CSV downloads. Below the
+queue chart and the server-state chart, a box for each line shows or hides it
+for every station (a click on a legend entry does the same), and a switch
+redraws the server states stacked. The viewer reports unfinished customers
+alongside completed-customer averages.
 `results.viewer()` returns a `Viewer`, and `results.viewer("output/viewer.html")`
 also saves it. A notebook displays a `Viewer` in an isolated frame, a script
 calls its `open()` method to show the page in a browser, and its `html`

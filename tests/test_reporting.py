@@ -356,6 +356,32 @@ def test_station_plots_draw_one_named_station(service_run, method, per_station):
         getattr(service_run, method)(station="Servce")
 
 
+def test_stacked_resource_plot_stacks_each_stations_layers(service_run):
+    from flowsim.plots import server_layers
+
+    figure = service_run.plot_resources(stacked=True)
+    names = ["Processing", "Blocked", "Paused", "Down", "Idle", "Scheduled"]
+    assert [trace.name for trace in figure.data] == names * 2
+    assert [trace.meta for trace in figure.data] == ["Check-in"] * 6 + ["Service"] * 6
+    # Each station's five layers share a stack, and the scheduled line does not.
+    assert [trace.stackgroup for trace in figure.data] == (
+        ["station 0"] * 5 + [None] + ["station 1"] * 5 + [None]
+    )
+    assert [trace.visible for trace in figure.data] == [True] * 6 + [False] * 6
+    layers = server_layers(service_run, "Service")
+    for trace, column in zip(
+        figure.data[6:11],
+        ["processing", "blocked", "paused", "down", "idle"],
+        strict=True,
+    ):
+        assert list(trace.y) == layers.get_column(column).to_list()
+    states = service_run.states.filter(pl.col("station") == "Service")
+    assert list(figure.data[11].y) == states.get_column("scheduled").to_list()
+    assert list(figure.data[11].x) == states.get_column("time").to_list()
+    chosen = service_run.plot_resources("Service", stacked=True)
+    assert [trace.name for trace in chosen.data] == names
+
+
 def test_utilization_plot_can_show_one_station(service_run):
     every = service_run.plot_utilization()
     assert list(every.data[0].y) == ["Check-in", "Service"]

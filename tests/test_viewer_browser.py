@@ -270,6 +270,89 @@ def test_extended_viewer_shows_resource_states_rejections_and_paused_work(
     )
 
 
+def test_viewer_line_choices_persist_across_stations_and_the_stacked_switch(
+    tmp_path, engine_page
+):
+    result = combined_line().run(
+        duration=180,
+        drain=True,
+    )
+    viewer = tmp_path / "extensions.html"
+    result.viewer(viewer)
+    page = engine_page(viewer)
+    page.wait_for_function("window.flowsimReady !== undefined")
+    page.evaluate("window.flowsimReady")
+    visible = "id => document.getElementById(id).data.map(trace => trace.visible)"
+    names = "id => document.getElementById(id).data.map(trace => trace.name)"
+    assert page.locator("#queues-series label").all_inner_texts() == [
+        "Waiting",
+        "Occupied servers",
+    ]
+    lines = ["Processing", "Blocked", "Paused", "Down", "Available", "Scheduled"]
+    assert page.locator("#resources-series label").all_inner_texts() == lines
+    assert "the lines overlap" in page.locator("#resources-reading").inner_text()
+    # Clearing a box dims that line in the legend for the shown station only.
+    page.uncheck("#resources-series input[data-series='Down']")
+    page.wait_for_function(
+        "document.getElementById('resources').data[3].visible === 'legendonly'"
+    )
+    assert page.evaluate(visible, "resources") == (
+        [True] * 3 + ["legendonly"] + [True] * 2 + [False] * 6
+    )
+    page.uncheck("#queues-series input[data-series='Waiting']")
+    # The choices hold for the next station.
+    page.select_option("#station-choice", "Finishing")
+    page.wait_for_function(
+        "document.getElementById('resources').data[9].visible === 'legendonly'"
+    )
+    assert page.evaluate(visible, "resources") == (
+        [False] * 6 + [True] * 3 + ["legendonly"] + [True] * 2
+    )
+    assert page.evaluate(visible, "queues") == [False, False, "legendonly", True]
+    # A legend click toggles the same choice and its box.
+    page.locator("#resources .legend .traces").filter(has_text="Paused").locator(
+        ".legendtoggle"
+    ).click()
+    page.wait_for_function(
+        "document.getElementById('resources').data[8].visible === 'legendonly'"
+    )
+    assert not page.is_checked("#resources-series input[data-series='Paused']")
+    # The stacked view keeps the choices and adds idle servers.
+    page.check("#resources-stacked")
+    page.wait_for_function(
+        "document.getElementById('resources').data.some(trace => trace.name === 'Idle')"
+    )
+    assert page.evaluate(names, "resources") == (
+        ["Processing", "Blocked", "Paused", "Down", "Idle", "Scheduled"] * 2
+    )
+    assert page.evaluate(visible, "resources") == (
+        [False] * 6 + [True, True, "legendonly", "legendonly", True, True]
+    )
+    assert page.locator("#resources-series label").all_inner_texts() == [
+        "Processing",
+        "Blocked",
+        "Paused",
+        "Down",
+        "Idle",
+        "Scheduled",
+    ]
+    assert "dashed scheduled line" in page.locator("#resources-reading").inner_text()
+    page.select_option("#station-choice", "Assembly")
+    page.wait_for_function(
+        "document.getElementById('resources').data[0].visible === true"
+    )
+    assert page.evaluate(visible, "resources") == (
+        [True, True, "legendonly", "legendonly", True, True] + [False] * 6
+    )
+    page.uncheck("#resources-stacked")
+    page.wait_for_function(
+        "document.getElementById('resources').data[4].name === 'Available'"
+    )
+    assert page.evaluate(visible, "resources") == (
+        [True, True, "legendonly", "legendonly", True, True] + [False] * 6
+    )
+
+
 def test_supply_viewer_switches_stock_points_and_downloads_records(
     tmp_path, offline_page
 ):

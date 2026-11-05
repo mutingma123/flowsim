@@ -857,37 +857,171 @@ def plot_utilization(result: Results, station: str | None = None) -> go.Figure:
     return figure
 
 
-def plot_resources(result: Results, station: str | None = None) -> go.Figure:
-    """Plot each station's processing, blocked, paused, down, and staffed servers."""
+# Server-state lines in legend order, with their colors and dashes.
+RESOURCE_LINES = [
+    ("processing", ORANGE, "Processing", "solid"),
+    ("blocked", GREEN, "Blocked", "solid"),
+    ("paused", PURPLE, "Paused", "solid"),
+    ("down", "#222222", "Down", "solid"),
+    ("available", GRAY, "Available", "dash"),
+    ("scheduled", BLUE, "Scheduled", "dash"),
+]
+# Stacked server states from the bottom up. Each server counts in one layer.
+RESOURCE_LAYERS = [
+    ("processing", ORANGE, "Processing"),
+    ("blocked", GREEN, "Blocked"),
+    ("paused", PURPLE, "Paused"),
+    ("down", "#222222", "Down"),
+    ("idle", "#BFC9D1", "Idle"),
+]
+
+
+def server_layers(result: Results, station: str) -> pl.DataFrame:
+    """Count one station's servers in each stacked layer at every states time.
+
+    The states table counts each condition on its own, so a down server that
+    holds a paused job is both paused and down there, and the table cannot
+    say which down servers hold a job. This function rebuilds each server's
+    condition after every event at each states time from the activities
+    table (its job and phase), the failures table (its repairs), and the
+    states table's scheduled count (server k is on duty while that count is
+    at least k, since shifts staff the lowest-numbered servers). A server
+    holding a job counts in its phase, a down server without a job counts as
+    down, and an on-duty server that is up and has no job is idle. An
+    off-duty server with no job and no repair is not counted. Thus, the
+    layers sum to the scheduled servers plus any off-duty server that still
+    holds a job or is under repair.
+    """
+    capacity = result._capacities[station]
+    # The recorded count, not the staffing schedule, since a run that stops at
+    # closing does not execute a shift change scheduled exactly then.
+    times = result.states.filter(pl.col("station") == station).select(
+        "time",
+        "scheduled",
+    )
+    # Zero-length intervals hold no state after the events at their time.
+    jobs = result.activities.filter(
+        (pl.col("station") == station)
+        & (pl.col("end").is_null() | (pl.col("end") > pl.col("start")))
+    )
+    repairs = result.failures.filter(
+        (pl.col("station") == station)
+        & (
+            pl.col("repair_end").is_null()
+            | (pl.col("repair_end") > pl.col("failure_time"))
+        )
+    )
+    servers = []
+    for server in range(1, capacity + 1):
+        # A server's intervals never overlap, so the latest one that starts at
+        # or before a time is the only one that can cover it.
+        servers.append(
+            times.join_asof(
+                jobs.filter(pl.col("server_id") == server)
+                .select("start", "end", "state")
+                .sort("start"),
+                left_on="time",
+                right_on="start",
+                strategy="backward",
+            )
+            .join_asof(
+                repairs.filter(pl.col("server_id") == server)
+                .select("failure_time", "repair_end")
+                .sort("failure_time"),
+                left_on="time",
+                right_on="failure_time",
+                strategy="backward",
+            )
+            .select(
+                "time",
+                pl.when(pl.col("end").is_null() | (pl.col("time") < pl.col("end")))
+                .then(pl.col("state"))
+                .alias("phase"),
+                (
+                    pl.col("failure_time").is_not_null()
+                    & (
+                        pl.col("repair_end").is_null()
+                        | (pl.col("time") < pl.col("repair_end"))
+                    )
+                ).alias("down"),
+                (pl.col("scheduled") >= server).alias("on_duty"),
+            )
+        )
+    free = pl.col("phase").is_null()
+    return (
+        pl.concat(servers)
+        .group_by("time", maintain_order=True)
+        .agg(
+            *[
+                (pl.col("phase") == phase).sum().cast(pl.Int64).alias(phase)
+                for phase in [Phase.PROCESSING, Phase.BLOCKED, Phase.PAUSED]
+            ],
+            (free & pl.col("down")).sum().cast(pl.Int64).alias("down"),
+            (free & ~pl.col("down") & pl.col("on_duty"))
+            .sum()
+            .cast(pl.Int64)
+            .alias("idle"),
+            pl.col("on_duty").sum().cast(pl.Int64).alias("scheduled"),
+        )
+        .sort("time")
+    )
+
+
+def plot_resources(
+    result: Results,
+    station: str | None = None,
+    stacked: bool = False,
+) -> go.Figure:
+    """Plot each station's server states over time, as lines or stacked.
+
+    The lines are the states table's processing, blocked, paused, down,
+    available, and scheduled counts, which overlap (e.g., a down server
+    holding a paused job counts as both paused and down). The stacked view
+    counts each server in one layer from server_layers and draws the
+    scheduled count as a dashed line over the stack.
+    """
     names = chosen_stations(result, station)
     figure = go.Figure()
-    fields = [
-        ("processing", ORANGE, "Processing"),
-        ("blocked", GREEN, "Blocked"),
-        ("paused", PURPLE, "Paused"),
-        ("down", "#222222", "Down"),
-        ("available", GRAY, "Available"),
-        ("scheduled", BLUE, "Scheduled"),
-    ]
+    hover = "%{x:.2f} " + label(result.settings.time_unit)
     for index, place in enumerate(names):
         history = result.states.filter(pl.col("station") == place)
-        for field, color, name in fields:
+        times = history.get_column("time").to_list()
+        if stacked:
+            layers = server_layers(result, place)
+            for field, color, name in RESOURCE_LAYERS:
+                figure.add_trace(
+                    go.Scatter(
+                        x=times,
+                        y=layers.get_column(field).to_list(),
+                        name=name,
+                        mode="lines",
+                        # Each station stacks its own layers.
+                        stackgroup=f"station {index}",
+                        line={"shape": "hv", "color": color, "width": 0.5},
+                        fillcolor=color,
+                        visible=index == 0,
+                        meta=place,
+                        hovertemplate=hover
+                        + "<br>%{y} servers<extra>%{fullData.name}</extra>",
+                    )
+                )
+        lines = (
+            [line for line in RESOURCE_LINES if line[0] == "scheduled"]
+            if stacked
+            else RESOURCE_LINES
+        )
+        for field, color, name, dash in lines:
             figure.add_trace(
                 go.Scatter(
-                    x=history.get_column("time").to_list(),
+                    x=times,
                     y=history.get_column(field).to_list(),
                     name=name,
                     mode="lines",
-                    line={
-                        "shape": "hv",
-                        "color": color,
-                        "width": 2,
-                        "dash": "dash"
-                        if field in {"scheduled", "available"}
-                        else "solid",
-                    },
+                    line={"shape": "hv", "color": color, "width": 2, "dash": dash},
                     visible=index == 0,
                     meta=place,
+                    hovertemplate=hover
+                    + "<br>%{y} servers<extra>%{fullData.name}</extra>",
                 )
             )
     station_menu(
@@ -1017,8 +1151,18 @@ def viewer_html(result: Results) -> str:
         for definition in result._definitions.values()
     ):
         figures["resources"] = figure_data(plot_resources(result))
+        # The page's switch swaps this figure into the resources chart.
+        stacked = figure_data(
+            plot_resources(
+                result,
+                stacked=True,
+            )
+        )
+    else:
+        stacked = None
     payload = {
         "figures": figures,
+        "stacked_resources": stacked,
         "customers": result.customers.to_dicts(),
         "visits": result.visits.to_dicts(),
         # Table cells for these station metrics display as percentages.

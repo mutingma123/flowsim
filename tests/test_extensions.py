@@ -911,3 +911,229 @@ def test_paused_server_needs_a_later_level_that_covers_it(returning):
         "start",
         "end",
     ).rows() == [(2, 1.0, 3.0)]
+
+
+def stacked_states(result, station):
+    from flowsim.plots import server_layers
+
+    return server_layers(result, station).select(
+        "time",
+        "processing",
+        "blocked",
+        "paused",
+        "down",
+        "idle",
+        "scheduled",
+    )
+
+
+def test_stacked_server_states_add_up_to_the_scheduled_servers():
+    # Patients arrive at 0, 0.5, 1, 1.5, and 2 to a two-server desk whose
+    # line holds one, so patient 4 is rejected at 1.5. Each desk server fails
+    # after 3 time units of processing and is repaired in 1. Check has one
+    # server and no line, so a finished desk job waits on its server.
+    model = Model()
+    patients = model.source(
+        name="Patients",
+        interarrival=0.5,
+        first_arrival=0,
+        limit=5,
+    )
+    desk = model.station(
+        name="Desk",
+        capacity=2,
+        service_time=2,
+        staffing=[(0, 2), (7, 1)],
+        shift_end="pause",
+        buffer=1,
+        external_overflow="reject",
+        time_to_failure=3,
+        repair_time=1,
+        failure_clock="busy",
+    )
+    check = model.station(
+        name="Check",
+        capacity=1,
+        service_time=1,
+        buffer=0,
+        external_overflow="reject",
+    )
+    model.route([patients, desk, check, model.exit])
+    result = model.run(duration=8)
+    # Columns: time, processing, blocked, paused, down without a job, idle,
+    # scheduled.
+    # 0: server 1 starts patient 1, server 2 is idle.
+    # 0.5: server 2 starts patient 2. 1: patient 3 waits.
+    # 2: server 1 finishes patient 1, who moves to Check, and starts patient 3;
+    #    patient 5 arrives and waits.
+    # 2.5: server 2 finishes patient 2, but Check is busy until 3: blocked.
+    # 3: patient 2 moves to Check and server 2 starts patient 5. Server 1 has
+    #    processed 2 + 1 = 3, so it fails holding patient 3: paused, and down
+    #    with a job, so it is not in the down layer.
+    # 4: server 1 is repaired and resumes patient 3 (1 left). Server 2 has
+    #    processed 2 + 1 = 3, so it fails holding patient 5.
+    # 5: server 1 finishes patient 3. Server 2 is repaired and resumes.
+    # 6: server 2 finishes patient 5. 7: the shift drops to one server.
+    expected = [
+        (0.0, 1, 0, 0, 0, 1, 2),
+        (0.5, 2, 0, 0, 0, 0, 2),
+        (1.0, 2, 0, 0, 0, 0, 2),
+        (2.0, 2, 0, 0, 0, 0, 2),
+        (2.5, 1, 1, 0, 0, 0, 2),
+        (3.0, 1, 0, 1, 0, 0, 2),
+        (4.0, 1, 0, 1, 0, 0, 2),
+        (5.0, 1, 0, 0, 0, 1, 2),
+        (6.0, 0, 0, 0, 0, 2, 2),
+        (7.0, 0, 0, 0, 0, 1, 1),
+        (8.0, 0, 0, 0, 0, 1, 1),
+    ]
+    assert stacked_states(result, "Desk").rows() == expected
+    for time, *layers, scheduled in expected:
+        assert sum(layers) == scheduled
+    # The states table counts server 1 at 3 as both paused and down, so the
+    # scheduled count minus every other column would give -1 idle servers.
+    at_three = result.states.filter(
+        (pl.col("station") == "Desk") & (pl.col("time") == 3)
+    ).row(0, named=True)
+    assert (at_three["paused"], at_three["down"], at_three["scheduled"]) == (1, 1, 2)
+    assert (
+        at_three["scheduled"]
+        - at_three["processing"]
+        - at_three["blocked"]
+        - at_three["paused"]
+        - at_three["down"]
+        == -1
+    )
+    assert result.customers.get_column("status").to_list() == [
+        "completed",
+        "completed",
+        "completed",
+        "rejected",
+        "completed",
+    ]
+
+
+def test_stacked_layers_rise_above_scheduled_while_off_duty_work_finishes():
+    # Jobs arrive at 0 and 0.5 and need 2 each. At 1 the shift drops to one
+    # server, and server 2 finishes its job off duty until 2.5.
+    model = Model()
+    jobs = model.source(
+        name="Jobs",
+        interarrival=0.5,
+        first_arrival=0,
+        limit=2,
+    )
+    desk = model.station(
+        name="Desk",
+        capacity=2,
+        service_time=2,
+        staffing=[(0, 2), (1, 1)],
+        shift_end="finish",
+    )
+    model.route([jobs, desk, model.exit])
+    result = model.run(duration=4)
+    assert stacked_states(result, "Desk").rows() == [
+        (0.0, 1, 0, 0, 0, 1, 2),
+        (0.5, 2, 0, 0, 0, 0, 2),
+        (1.0, 2, 0, 0, 0, 0, 1),
+        (2.0, 1, 0, 0, 0, 1, 1),
+        (2.5, 0, 0, 0, 0, 1, 1),
+        (4.0, 0, 0, 0, 0, 1, 1),
+    ]
+
+
+def test_a_down_server_without_a_job_is_its_own_layer():
+    # No job arrives. The machine's clock runs while it is available, so it
+    # fails at 1, is repaired at 2, and fails again at 3.
+    model = Model()
+    parts = model.source(
+        name="Parts",
+        interarrival=1,
+        limit=0,
+    )
+    machine = model.station(
+        name="Machine",
+        capacity=1,
+        service_time=1,
+        time_to_failure=1,
+        repair_time=1,
+        failure_clock="available",
+    )
+    model.route([parts, machine, model.exit])
+    result = model.run(duration=3.5)
+    assert stacked_states(result, "Machine").rows() == [
+        (0.0, 0, 0, 0, 0, 1, 1),
+        (1.0, 0, 0, 0, 1, 0, 1),
+        (2.0, 0, 0, 0, 0, 1, 1),
+        (3.0, 0, 0, 0, 1, 0, 1),
+        (3.5, 0, 0, 0, 1, 0, 1),
+    ]
+
+
+@pytest.mark.parametrize("policy", ["finish", "pause"])
+@pytest.mark.parametrize("clock", ["available", "busy"])
+def test_rebuilt_server_states_match_the_states_table(policy, clock):
+    from flowsim.plots import server_layers
+    from tests.models import combined_line
+
+    for seed in range(3):
+        result = combined_line(
+            shift_end=policy,
+            failure_clock=clock,
+        ).run(
+            duration=300,
+            seed=seed,
+            drain=seed == 0,
+        )
+        for station, capacity in result.settings.capacities.items():
+            layers = server_layers(result, station)
+            states = result.states.filter(pl.col("station") == station)
+            assert layers.get_column("time").to_list() == (
+                states.get_column("time").to_list()
+            )
+            for column in ["processing", "blocked", "paused", "scheduled"]:
+                assert layers.get_column(column).to_list() == (
+                    states.get_column(column).to_list()
+                )
+            # Down servers holding a job count in their job's phase instead.
+            holding = states.get_column("down") - layers.get_column("down")
+            assert holding.min() >= 0
+            assert (
+                holding <= states.get_column("paused") + states.get_column("blocked")
+            ).all()
+            stack = layers.select(
+                pl.sum_horizontal("processing", "blocked", "paused", "down", "idle")
+            ).to_series()
+            assert (stack >= layers.get_column("scheduled")).all()
+            assert stack.max() <= capacity
+
+
+@pytest.mark.parametrize("drain", [False, True])
+@pytest.mark.parametrize(("start", "change"), [(2, 1), (1, 2)])
+def test_stacked_layers_follow_a_shift_change_only_when_it_runs(drain, start, change):
+    # No job arrives, so every on-duty server is idle. A run that stops at
+    # closing never executes the shift change scheduled at closing, 3, while a
+    # drained run executes it before it stops at 3.
+    model = Model()
+    parts = model.source(
+        name="Parts",
+        interarrival=10,
+        limit=0,
+    )
+    desk = model.station(
+        name="Desk",
+        capacity=2,
+        service_time=1,
+        staffing=[(0, start), (3, change)],
+        shift_end="finish",
+    )
+    model.route([parts, desk, model.exit])
+    result = model.run(
+        duration=3,
+        drain=drain,
+    )
+    final = change if drain else start
+    assert stacked_states(result, "Desk").rows() == [
+        (0.0, 0, 0, 0, 0, start, start),
+        (3.0, 0, 0, 0, 0, final, final),
+    ]

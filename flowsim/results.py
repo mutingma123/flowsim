@@ -2595,13 +2595,29 @@ class Results:
 
         return plot_utilization(self, station=station)
 
-    def plot_resources(self, station: str | None = None) -> Figure:
+    def plot_resources(
+        self,
+        station: str | None = None,
+        *,
+        stacked: bool = False,
+    ) -> Figure:
         """Plot processing, blocked, paused, down, and staffed servers over time.
+
+        The lines are the states table's counts, which overlap: a down server
+        holding a paused job counts as both paused and down. With stacked=True,
+        each server counts in one layer (processing, blocked, or paused while it
+        holds a job, down while it is under repair without one, and idle while
+        it is on duty, up, and free), and the layers reach the dashed scheduled
+        line except while an off-duty server still holds a job or is under
+        repair.
 
         Parameters
         ----------
         station : str, optional
             Name of one station. Without it, all stations are drawn.
+        stacked : bool, default False
+            Whether to stack each server's state instead of drawing the
+            overlapping counts as lines.
 
         Returns
         -------
@@ -2610,14 +2626,18 @@ class Results:
 
         Example
         -------
-        >>> results.plot_resources("Desk").show()
+        >>> results.plot_resources("Desk", stacked=True).show()
         """
         self._require_records("plot_resources()")
         from flowsim.plots import plot_resources, require_stations
 
         require_stations(self)
 
-        return plot_resources(self, station=station)
+        return plot_resources(
+            self,
+            station=station,
+            stacked=stacked,
+        )
 
     def plot_customer(self, customer_id: int) -> Figure:
         """Plot one customer's waiting, service, paused, and blocked time.
