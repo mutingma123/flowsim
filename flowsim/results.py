@@ -1706,6 +1706,34 @@ EXPORT_FILE_NAMES = frozenset(
 )
 
 
+def require_flowsim_folder(destination: Path) -> None:
+    """Refuse a folder that holds export-named files FlowSim did not write.
+
+    A folder counts as FlowSim's when its metadata.json parses as a JSON object
+    with a "flowsim_version" key. A missing folder or one without export-named
+    files is fine.
+    """
+    if not destination.is_dir():
+        return
+    clashing = sorted(
+        name for name in EXPORT_FILE_NAMES if (destination / name).is_file()
+    )
+    if not clashing:
+        return
+    try:
+        metadata = json.loads((destination / "metadata.json").read_text())
+    except (OSError, ValueError):
+        metadata = None
+    if isinstance(metadata, dict) and "flowsim_version" in metadata:
+        return
+    raise ValueError(
+        f"{destination} holds {', '.join(clashing)}, but no FlowSim "
+        "metadata.json, so FlowSim cannot tell whether it wrote them and will "
+        "not replace or delete them. Export into an empty folder or one an "
+        "earlier FlowSim export wrote."
+    )
+
+
 def remove_stale_exports(destination: Path, written: set[str]) -> None:
     """Delete FlowSim export files in destination that this export did not write."""
     for name in EXPORT_FILE_NAMES - written:
@@ -1715,8 +1743,16 @@ def remove_stale_exports(destination: Path, written: set[str]) -> None:
 
 
 def _write_metadata(path: str | Path, data: dict) -> None:
-    """Write export metadata as JSON, stamped with the FlowSim version."""
-    write_text(path, json.dumps({"flowsim_version": __version__, **data}, indent=2))
+    """Write export metadata as JSON, stamped with the FlowSim version.
+
+    The file is written beside its destination and then renamed over it, so an
+    interrupted write keeps the earlier metadata, which marks the folder as
+    FlowSim's for require_flowsim_folder.
+    """
+    destination = Path(path)
+    partial = destination.with_name(destination.name + ".partial")
+    write_text(partial, json.dumps({"flowsim_version": __version__, **data}, indent=2))
+    partial.replace(destination)
 
 
 def interval_estimate(values: np.ndarray, confidence: float) -> dict:
@@ -2764,13 +2800,12 @@ class Results:
         """
         self._require_records("export()")
         destination = Path(directory)
+        require_flowsim_folder(destination)
         destination.mkdir(
             parents=True,
             exist_ok=True,
         )
         names = self._table_names()
-        for name in names:
-            getattr(self, name).write_csv(destination / f"{name}.csv")
         metadata = {
             "time_unit": self.settings.time_unit,
             "duration": self.settings.duration,
@@ -2804,7 +2839,11 @@ class Results:
             metadata["shipment_arrivals"] = (
                 "Null for shipments still in transit at the end"
             )
+        # Metadata goes first, so an export interrupted while writing tables
+        # leaves a folder that a retry still recognizes as FlowSim's.
         _write_metadata(destination / "metadata.json", metadata)
+        for name in names:
+            getattr(self, name).write_csv(destination / f"{name}.csv")
         remove_stale_exports(
             destination,
             {f"{name}.csv" for name in names} | {"metadata.json"},

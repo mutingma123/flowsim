@@ -729,6 +729,38 @@ def test_export_removes_stale_flowsim_files_and_keeps_other_files(tmp_path):
     assert (tmp_path / "sub").is_dir()
 
 
+def test_export_refuses_folder_with_files_flowsim_did_not_write(tmp_path):
+    (tmp_path / "customers.csv").write_text("mine")
+    (tmp_path / "notes.txt").write_text("keep")
+    with pytest.raises(ValueError, match="customers.csv"):
+        deterministic_queue().run(duration=7).export(tmp_path)
+    assert (tmp_path / "customers.csv").read_text() == "mine"
+    assert (tmp_path / "notes.txt").read_text() == "keep"
+
+
+def test_an_interrupted_export_can_be_retried(tmp_path, monkeypatch):
+    # Metadata is written before the tables, so a failure while writing the
+    # tables leaves a folder that a retry recognizes as FlowSim's.
+    result = deterministic_queue().run(duration=7)
+    original = pl.DataFrame.write_csv
+    calls = []
+
+    def fail(self, *args, **kwargs):
+        # The first table is written, then the disk fills.
+        calls.append(None)
+        if len(calls) > 1:
+            raise OSError("disk full")
+        original(self, *args, **kwargs)
+
+    monkeypatch.setattr(pl.DataFrame, "write_csv", fail)
+    with pytest.raises(OSError, match="disk full"):
+        result.export(tmp_path)
+    monkeypatch.setattr(pl.DataFrame, "write_csv", original)
+    result.export(tmp_path)
+    assert (tmp_path / "customers.csv").is_file()
+    assert not list(tmp_path.glob("*.partial"))
+
+
 def test_results_export_removes_stale_comparison_files(tmp_path):
     result = compare(
         scenarios={

@@ -43,6 +43,7 @@ from flowsim.results import (
     metric_error,
     metric_units,
     remove_stale_exports,
+    require_flowsim_folder,
     scope_name,
     unknown,
 )
@@ -796,6 +797,7 @@ def export_tables(
 ) -> Path:
     """Write pooled run tables, intervals, and metadata, removing stale files."""
     destination = Path(directory)
+    require_flowsim_folder(destination)
     destination.mkdir(
         parents=True,
         exist_ok=True,

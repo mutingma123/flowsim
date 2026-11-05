@@ -210,6 +210,8 @@ def test_experiment_export_writes_pooled_tables_and_metadata(tmp_path):
         replications=3,
         seed=5,
     )
+    # The folder stands for an earlier FlowSim export.
+    (tmp_path / "metadata.json").write_text('{"flowsim_version": "1.0.0"}')
     (tmp_path / "differences.csv").write_text("stale")
     (tmp_path / "customers.csv").write_text("stale")
     (tmp_path / "notes.txt").write_text("keep")

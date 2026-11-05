@@ -977,7 +977,10 @@ browser, which saves them to its own download folder.
 Exports keep missing starts and exits as empty CSV fields and never replace an
 unknown outcome with zero. An export also removes FlowSim files that an earlier
 export left in the same folder and this one does not write, and it leaves other
-files alone. Table columns in Reference lists every column of these files.
+files alone. An export refuses a folder that holds files with FlowSim's export
+names but no FlowSim `metadata.json`, and the error names those files, so it
+never overwrites or deletes data FlowSim did not write. Table columns in
+Reference lists every column of these files.
 
 | File | Contents |
 | --- | --- |

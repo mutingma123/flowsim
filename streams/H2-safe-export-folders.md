@@ -1,6 +1,6 @@
 # H2 Export refuses to clear a folder FlowSim did not write
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H1 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -59,4 +59,31 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 485 passed @ dcc4937
+- first gates (logs/2026-11-05-1137-gate-*-H2.log): all passed, 486 tests.
+- after the review fix (logs/2026-11-05-1143-gate-*-H2.log): check EXIT=0, 487 passed in
+  218.0 s; examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 109 (12.1);
+  bench run 4.348 s, compare 1.143 s, dashboard 5.017 s, all inside their bands.
+- mutation (logs/2026-11-05-1148-mutation-H2-*.log): station 430/480, engine 738/826,
+  results metrics 745/807.
+
 ## Result
+
+require_flowsim_folder (results.py) runs before any write in Results.export and export_tables.
+A folder that holds export-named files counts as FlowSim's only when its metadata.json is a
+JSON object with flowsim_version; otherwise the export raises a ValueError naming the files.
+FlowSim's own folders keep the U25 behavior (overwrite, remove stale FlowSim files). New tests:
+test_export_refuses_folder_with_files_flowsim_did_not_write and
+test_an_interrupted_export_can_be_retried. One test's setup changed:
+test_experiment_export_writes_pooled_tables_and_metadata seeds a FlowSim metadata.json, since
+its folder stands for an earlier export; no asserted value changed. README's export paragraph
+says what the refusal does.
+
+Codex adversarial review (streams/reviews/H2-codex.md), one medium finding, accepted after
+checking the code: Results.export wrote its tables before metadata.json and write_text is not
+atomic, so an interrupted export would leave FlowSim's files unmarked and the guard would
+refuse every retry. Fixed: Results.export writes metadata first (as export_tables already
+did), _write_metadata writes metadata.json.partial and renames it over the old file, and the
+message says FlowSim cannot tell whether it wrote the files. The retry test fails on the old
+write order and passes on the new one. Codex's rejected alternative, accepting unmarked files,
+was also rejected, since it restores the overwrite risk.
