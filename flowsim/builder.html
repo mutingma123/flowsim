@@ -173,6 +173,8 @@ const MOVE_STEP = 10;
 const MOVE_STEP_LARGE = 50;
 const NODE_W = 150;
 const NODE_H = 58;
+// The distance between arrows that join the same two nodes.
+const PARALLEL_GAP = 36;
 const LINE = 88;
 
 const canvas = document.getElementById("canvas");
@@ -196,6 +198,7 @@ function emptyState() {
     edges: [],
     next: 1,
     next_type: 1,
+    next_edge: 1,
   };
 }
 
@@ -369,6 +372,14 @@ function addType() {
 }
 
 function removeType(id) {
+  if (state.types.length === 1) {
+    // Without types, two arrows between the same nodes could not differ.
+    const twice = state.edges.find((edge) => state.edges.some((other) => other !== edge && other.from === edge.from && other.to === edge.to));
+    if (twice) {
+      showStatus(`Remove a route from ${nodeById(twice.from).name} to ${nodeById(twice.to).name} first. Two routes between the same nodes need customer types.`);
+      return;
+    }
+  }
   record(null);
   const name = typeName(id);
   state.types = state.types.filter((item) => item.id !== id);
@@ -524,15 +535,17 @@ function shareSplit(edges) {
 }
 
 // The rules for one new route, shared by the add-route controls and file loading.
-// Returns the reason the route is refused, or null.
-function routeProblem(nodes, edges, from, to) {
+// Returns the reason the route is refused, or null. A second route between the
+// same nodes needs customer types (typed), since each must carry its own; Checks
+// lists any type that two of them carry.
+function routeProblem(nodes, edges, from, to, typed) {
   const origin = nodes.find((node) => node.id === from);
   const target = nodes.find((node) => node.id === to);
   if (from === to) return "A node cannot route to itself.";
   if (origin.kind === "exit") return "The exit cannot have an outgoing route.";
   if (target.kind === "source") return "A source cannot receive routed customers.";
-  if (edges.some((edge) => edge.from === from && edge.to === to)) {
-    return `${origin.name} already routes to ${target.name}.`;
+  if (!typed && edges.some((edge) => edge.from === from && edge.to === to)) {
+    return `${origin.name} already routes to ${target.name}. A second route between them needs customer types, so that each carries its own.`;
   }
   return null;
 }
@@ -541,28 +554,41 @@ function addEdge(from, to) {
   const origin = nodeById(from);
   const target = nodeById(to);
   if (!origin || !target) return;
-  const refusal = routeProblem(state.nodes, state.edges, from, to);
+  const refusal = routeProblem(state.nodes, state.edges, from, to, state.types.length > 0);
   if (refusal) {
     showStatus(refusal);
     return;
   }
   record(null);
-  const edge = {from, to, probability: "1", types: null};
+  // A second route between the same nodes starts with no type chosen, which
+  // Checks lists until the student picks its types.
+  const second = state.edges.some((edge) => edge.from === from && edge.to === to);
+  const edge = {id: `e${state.next_edge}`, from, to, probability: "1", types: second ? [] : null};
+  state.next_edge += 1;
   state.edges.push(edge);
   const group = groupOf(edge);
   if (group.length > 1) shareSplit(group);
   showStatus("");
   renderAll();
-  announce(`Added a route from ${origin.name} to ${target.name}.`);
+  announce(
+    second
+      ? `Added a second route from ${origin.name} to ${target.name}. Choose its customer types.`
+      : `Added a route from ${origin.name} to ${target.name}.`,
+  );
 }
 
-function removeEdge(from, to) {
+function edgeById(id) {
+  return state.edges.find((edge) => edge.id === id);
+}
+
+function removeEdge(id) {
+  const edge = edgeById(id);
   record(null);
-  announce(`Removed the route from ${nodeById(from).name} to ${nodeById(to).name}.`);
-  state.edges = state.edges.filter((edge) => !(edge.from === from && edge.to === to));
-  settleSingles(from);
-  if (selection && selection.type === "edge" && selection.from === from && selection.to === to) {
-    selection = {type: "node", id: from};
+  announce(`Removed the route from ${nodeById(edge.from).name} to ${nodeById(edge.to).name}.`);
+  state.edges = state.edges.filter((item) => item.id !== id);
+  settleSingles(edge.from);
+  if (selection && selection.type === "edge" && selection.id === id) {
+    selection = {type: "node", id: edge.from};
   }
   renderAll();
 }
@@ -583,20 +609,27 @@ function removeNode(id) {
 function deleteSelection() {
   if (!selection) return;
   if (selection.type === "node") removeNode(selection.id);
-  else removeEdge(selection.from, selection.to);
+  else removeEdge(selection.id);
 }
 
 // ---------- Canvas ----------
 
-function anchor(node, toward) {
-  // The point where the line from the node's center toward a point leaves its box.
-  const cx = node.x + NODE_W / 2;
-  const cy = node.y + NODE_H / 2;
-  const dx = toward.x - cx;
-  const dy = toward.y - cy;
-  if (dx === 0 && dy === 0) return {x: cx, y: cy};
-  const scale = 1 / Math.max(Math.abs(dx) / (NODE_W / 2 + 4), Math.abs(dy) / (NODE_H / 2 + 4));
-  return {x: cx + dx * scale, y: cy + dy * scale};
+function anchor(node, toward, from = center(node)) {
+  // The point where the line from a point in the node's box (its center unless
+  // given) toward another point leaves the box, 4 pixels out. A start outside
+  // the box falls back to the center.
+  const left = node.x - 4;
+  const right = node.x + NODE_W + 4;
+  const top = node.y - 4;
+  const bottom = node.y + NODE_H + 4;
+  const start = from.x > left && from.x < right && from.y > top && from.y < bottom ? from : center(node);
+  const dx = toward.x - start.x;
+  const dy = toward.y - start.y;
+  if (dx === 0 && dy === 0) return start;
+  const tx = dx > 0 ? (right - start.x) / dx : dx < 0 ? (left - start.x) / dx : Infinity;
+  const ty = dy > 0 ? (bottom - start.y) / dy : dy < 0 ? (top - start.y) / dy : Infinity;
+  const t = Math.min(tx, ty);
+  return {x: start.x + dx * t, y: start.y + dy * t};
 }
 
 function center(node) {
@@ -649,27 +682,52 @@ function curvePoints(start, control, end) {
   return points;
 }
 
-function edgeGeometry(origin, target) {
+function pathText(start, control, end) {
+  const point = (item) => `${item.x.toFixed(1)},${item.y.toFixed(1)}`;
+  return control ? `M${point(start)} Q${point(control)} ${point(end)}` : `M${point(start)} L${point(end)}`;
+}
+
+// Arrows between the same two nodes, either way, in drawing order.
+function siblings(edge) {
+  return state.edges.filter(
+    (item) => (item.from === edge.from && item.to === edge.to) || (item.from === edge.to && item.to === edge.from),
+  );
+}
+
+function parallelShift(edge) {
+  // Arrows between the same two nodes sit PARALLEL_GAP apart, side by side
+  // across the line between the nodes, which one direction measures for both
+  // ways, so a route and its reverse also separate.
+  const group = siblings(edge);
+  if (group.length < 2) return {x: 0, y: 0};
+  const step = (group.indexOf(edge) - (group.length - 1) / 2) * PARALLEL_GAP;
+  const [first, second] = edge.from < edge.to ? [edge.from, edge.to] : [edge.to, edge.from];
+  const a = center(nodeById(first));
+  const b = center(nodeById(second));
+  const length = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  return {x: (-(b.y - a.y) / length) * step, y: ((b.x - a.x) / length) * step};
+}
+
+function edgeGeometry(origin, target, shift = {x: 0, y: 0}) {
   // A straight arrow, or a curve that bends around nodes in its way (e.g., an
-  // arrow that skips a column after Arrange).
-  const start = anchor(origin, center(target));
-  const end = anchor(target, center(origin));
-  const straight = {
-    start,
-    end,
-    middle: {x: (start.x + end.x) / 2, y: (start.y + end.y) / 2},
-    path: `M${start.x.toFixed(1)},${start.y.toFixed(1)} L${end.x.toFixed(1)},${end.y.toFixed(1)}`,
-  };
+  // arrow that skips a column after Arrange). A parallel arrow runs between
+  // the nodes' centers moved sideways by shift (see parallelShift), and its
+  // ends sit where that line leaves each box, so its head stays outside.
+  const a = {x: center(origin).x + shift.x, y: center(origin).y + shift.y};
+  const b = {x: center(target).x + shift.x, y: center(target).y + shift.y};
+  const start = anchor(origin, b, a);
+  const end = anchor(target, a, b);
+  const straight = {start, end, middle: {x: (start.x + end.x) / 2, y: (start.y + end.y) / 2}};
   const line = curvePoints(start, straight.middle, end);
-  if (!crossings(line, origin, target)) return straight;
+  if (!crossings(line, origin, target)) return {...straight, path: pathText(start, null, end)};
   const length = Math.hypot(end.x - start.x, end.y - start.y) || 1;
   const normal = {x: -(end.y - start.y) / length, y: (end.x - start.x) / length};
   let best = null;
   for (const bend of [90, -90, 150, -150, 220, -220]) {
     const control = {x: straight.middle.x + normal.x * bend, y: straight.middle.y + normal.y * bend};
     // The curve leaves and enters each box toward its control point.
-    const from = anchor(origin, control);
-    const to = anchor(target, control);
+    const from = anchor(origin, control, a);
+    const to = anchor(target, control, b);
     const hits = crossings(curvePoints(from, control, to), origin, target);
     if (!best || hits < best.hits) best = {hits, from, to, control};
     if (!hits) break;
@@ -679,7 +737,7 @@ function edgeGeometry(origin, target) {
     start: from,
     end: to,
     middle: {x: (from.x + 2 * control.x + to.x) / 4, y: (from.y + 2 * control.y + to.y) / 4},
-    path: `M${from.x.toFixed(1)},${from.y.toFixed(1)} Q${control.x.toFixed(1)},${control.y.toFixed(1)} ${to.x.toFixed(1)},${to.y.toFixed(1)}`,
+    path: pathText(from, control, to),
   };
 }
 
@@ -711,28 +769,30 @@ function renderCanvas() {
   for (const edge of state.edges) {
     const origin = nodeById(edge.from);
     const target = nodeById(edge.to);
-    const {start, end, middle, path} = edgeGeometry(origin, target);
-    const chosen = selection && selection.type === "edge" && selection.from === edge.from && selection.to === edge.to;
-    const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+    const shift = parallelShift(edge);
+    const {middle, path} = edgeGeometry(origin, target, shift);
+    const chosen = selection && selection.type === "edge" && selection.id === edge.id;
+    const data = `data-edge="${escapeHtml(edge.id)}" data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
     const name = escapeHtml(edgeName(edge));
     parts.push(`<path class="edge${chosen ? " selected" : ""}" d="${path}" marker-end="url(#${chosen ? "arrow-selected" : "arrow"})" ${data}></path>`);
     parts.push(
       `<path class="edge-hit" d="${path}" ${data} tabindex="0" role="button" aria-label="${name}" aria-pressed="${chosen ? "true" : "false"}" ` +
-      `data-focus-key="${escapeHtml(`edge:${edge.from}:${edge.to}`)}"><title>${name}</title></path>`
+      `data-focus-key="${escapeHtml(`edge:${edge.id}`)}"><title>${name}</title></path>`
     );
     const mx = middle.x;
     const my = middle.y;
     const types = typesText(edge);
     if (types) {
-      // A typed arrow names its types, below its probability when it has one.
-      const below = inBranch(edge) ? 26 : 4;
+      // A typed arrow names its types, below its probability when it has one,
+      // or above it when the arrow sits above a parallel one.
+      const below = shift.y < 0 ? (inBranch(edge) ? -20 : -6) : inBranch(edge) ? 26 : 4;
       labels.push(`<text class="edge-types" x="${mx.toFixed(1)}" y="${(my + below).toFixed(1)}" text-anchor="middle">${escapeHtml(short(types, 28))}</text>`);
     }
     if (inBranch(edge)) {
       labels.push(
         `<foreignObject x="${(mx - 32).toFixed(1)}" y="${(my - 14).toFixed(1)}" width="64" height="28">` +
-        `<input class="edge-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability from ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}" inputmode="decimal" ` +
-        `data-focus-key="${escapeHtml(`prob:${edge.from}:${edge.to}`)}">` +
+        `<input class="edge-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability from ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}${types ? ` for ${escapeHtml(types)}` : ""}" inputmode="decimal" ` +
+        `data-focus-key="${escapeHtml(`prob:${edge.id}`)}">` +
         "</foreignObject>"
       );
     }
@@ -814,9 +874,9 @@ canvas.addEventListener("pointerdown", (event) => {
     focusCanvasItem(`node:${node.id}`);
     event.preventDefault();
   } else if (edge) {
-    selection = {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
+    selection = {type: "edge", id: edge.dataset.edge};
     renderAll();
-    focusCanvasItem(`edge:${edge.dataset.from}:${edge.dataset.to}`);
+    focusCanvasItem(`edge:${edge.dataset.edge}`);
     event.preventDefault();
   } else {
     selection = null;
@@ -856,15 +916,14 @@ window.addEventListener("pointerup", (event) => {
 canvas.addEventListener("input", (event) => {
   const input = event.target.closest(".edge-prob");
   if (!input) return;
-  setProbability(input.dataset.from, input.dataset.to, input.value, input);
+  setProbability(input.dataset.edge, input.value, input);
 });
 
-function setProbability(from, to, value, source) {
-  record(`prob:${from}:${to}`);
-  const edge = state.edges.find((item) => item.from === from && item.to === to);
-  edge.probability = value;
+function setProbability(id, value, source) {
+  record(`prob:${id}`);
+  edgeById(id).probability = value;
   // Keep the arrow field and the panel field showing the same value.
-  for (const field of document.querySelectorAll(`[data-from="${CSS.escape(from)}"][data-to="${CSS.escape(to)}"]`)) {
+  for (const field of document.querySelectorAll(`[data-edge="${CSS.escape(id)}"]`)) {
     if (field !== source && field.tagName === "INPUT") field.value = value;
   }
   update();
@@ -885,7 +944,7 @@ canvas.addEventListener("keydown", (event) => {
   if ((event.key === "Enter" || event.key === " ") && (group || edge)) {
     selection = group
       ? {type: "node", id: group.dataset.nodeId}
-      : {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
+      : {type: "edge", id: edge.dataset.edge};
     renderAll();
     focusPanel();
     event.preventDefault();
@@ -910,7 +969,7 @@ canvas.addEventListener("focusin", (event) => {
   const edge = event.target.closest(".edge-hit");
   let next = null;
   if (group) next = {type: "node", id: group.dataset.nodeId};
-  else if (edge) next = {type: "edge", from: edge.dataset.from, to: edge.dataset.to};
+  else if (edge) next = {type: "edge", id: edge.dataset.edge};
   if (!next || JSON.stringify(next) === JSON.stringify(selection)) return;
   selection = next;
   renderAll();
@@ -1286,7 +1345,7 @@ function routeFields(node) {
     html += `<ul class="routes">`;
     for (const edge of group) {
       const target = nodeById(edge.to);
-      const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+      const data = `data-edge="${escapeHtml(edge.id)}" data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
       html +=
         `<li class="${branch ? "" : "single"}"><span>to ${escapeHtml(target.name)}</span>` +
         (branch ? `<input class="panel-prob" ${data} value="${escapeHtml(edge.probability)}" aria-label="Probability to ${escapeHtml(target.name)}" inputmode="decimal">` : "") +
@@ -1297,8 +1356,9 @@ function routeFields(node) {
       html += `<p class="help branch-sum" data-from="${escapeHtml(node.id)}" data-key="${escapeHtml(edgeKey(group[0]))}">${branchSumText(node.id, edgeKey(group[0]))}</p>`;
     }
   }
+  // With customer types, a node may route to the same node again for other types.
   const targets = state.nodes.filter(
-    (item) => item.id !== node.id && item.kind !== "source" && !routes.some((edge) => edge.to === item.id),
+    (item) => item.id !== node.id && item.kind !== "source" && (state.types.length || !routes.some((edge) => edge.to === item.id)),
   );
   if (targets.length) {
     html +=
@@ -1344,7 +1404,7 @@ function edgeTypeFields(edge) {
   }
   return (
     html +
-    '<p class="help">Arrows from one node with the same types form one route or a branch. A node routes every type the same way, or each type its own way, not both.</p></fieldset>'
+    '<p class="help">Arrows from one node with the same types form one route or a branch. A node routes every type the same way, or each type its own way, not both. Two arrows between the same nodes carry different types.</p></fieldset>'
   );
 }
 
@@ -1357,10 +1417,10 @@ function renderPanel() {
     return;
   }
   if (selection.type === "edge") {
-    const edge = state.edges.find((item) => item.from === selection.from && item.to === selection.to);
+    const edge = edgeById(selection.id);
     const origin = nodeById(edge.from);
     const target = nodeById(edge.to);
-    const data = `data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
+    const data = `data-edge="${escapeHtml(edge.id)}" data-from="${escapeHtml(edge.from)}" data-to="${escapeHtml(edge.to)}"`;
     panel.innerHTML =
       `<h2>Route</h2><p>From ${escapeHtml(origin.name)} to ${escapeHtml(target.name)}.</p>` +
       edgeTypeFields(edge) +
@@ -1396,7 +1456,7 @@ function refocus(id) {
 panel.addEventListener("input", (event) => {
   const target = event.target;
   if (target.classList.contains("panel-prob")) {
-    setProbability(target.dataset.from, target.dataset.to, target.value, target);
+    setProbability(target.dataset.edge, target.value, target);
     refreshSums();
     return;
   }
@@ -1442,7 +1502,7 @@ panel.addEventListener("change", (event) => {
   const target = event.target;
   if (!selection) return;
   if (selection.type === "edge") {
-    const edge = state.edges.find((item) => item.from === selection.from && item.to === selection.to);
+    const edge = edgeById(selection.id);
     if (target.dataset.edgeTypes) {
       setEdgeTypes(edge, target.dataset.edgeTypes === "all" ? null : []);
     } else if (target.dataset.edgeType) {
@@ -1493,7 +1553,7 @@ panel.addEventListener("click", (event) => {
     // The panel was redrawn, so keyboard focus returns to the route controls.
     (document.getElementById("route-target") || panel).focus();
   } else if (target.classList.contains("remove-route")) {
-    removeEdge(target.dataset.from, target.dataset.to);
+    removeEdge(target.dataset.edge);
     (document.getElementById("route-target") || panel).focus();
   } else if (target.id === "delete-node" || target.id === "delete-route") {
     deleteSelection();
@@ -1771,6 +1831,25 @@ function routingProblems(found) {
     for (const type of typeIds()) {
       const keys = new Set(typed.filter((edge) => edge.types.includes(type)).map(edgeKey));
       if (keys.size > 1) found.push(`${node.name}: type ${typeName(type)} is on two different routes from it.`);
+    }
+    // Two arrows between the same nodes must carry different types. Arrows that
+    // mix every type with named types, or carry a type on two routes, were
+    // listed above.
+    const byTarget = new Map();
+    for (const edge of routes) byTarget.set(edge.to, [...(byTarget.get(edge.to) || []), edge]);
+    for (const [to, pair] of byTarget) {
+      if (pair.length < 2) continue;
+      const target = nodeById(to).name;
+      if (pair.every((edge) => edge.types === null)) {
+        found.push(`${node.name} has ${pair.length} routes to ${target} for every type. Give each its own customer types, or remove one.`);
+      } else if (pair.every((edge) => edge.types !== null)) {
+        for (const type of typeIds()) {
+          const carrying = pair.filter((edge) => edge.types.includes(type));
+          if (carrying.length > 1 && new Set(carrying.map(edgeKey)).size === 1) {
+            found.push(`${node.name} has two routes to ${target} for type ${typeName(type)}.`);
+          }
+        }
+      }
     }
     for (const group of groupsOf(node.id)) {
       if (group.length < 2) continue;
@@ -2305,7 +2384,7 @@ function fromJson(data) {
     if (typeof edge.from !== "string" || typeof edge.to !== "string" || !ids.has(edge.from) || !ids.has(edge.to)) {
       throw new Error("A route names a node the file does not have.");
     }
-    const refusal = routeProblem(loaded.nodes, loaded.edges, edge.from, edge.to);
+    const refusal = routeProblem(loaded.nodes, loaded.edges, edge.from, edge.to, types.size > 0);
     if (refusal) throw new Error(refusal);
     let edgeTypes = null;
     if (edge.types !== undefined && edge.types !== null) {
@@ -2314,9 +2393,16 @@ function fromJson(data) {
       }
       edgeTypes = [...new Set(edge.types)];
     }
-    loaded.edges.push({from: String(edge.from), to: String(edge.to), probability: text(edge.probability), types: edgeTypes});
+    loaded.edges.push({
+      id: `e${loaded.edges.length + 1}`,
+      from: String(edge.from),
+      to: String(edge.to),
+      probability: text(edge.probability),
+      types: edgeTypes,
+    });
   }
   loaded.next = next;
+  loaded.next_edge = loaded.edges.length + 1;
   return loaded;
 }
 

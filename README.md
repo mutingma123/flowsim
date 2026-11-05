@@ -262,7 +262,8 @@ reason on hover. `model.diagram(check=True)` instead raises the error that `run`
 would raise. For a supply chain, `model.diagram()` draws the outside supplier,
 the stock points, and demand in one row with goods moving left to right, labels
 the arrow into each stock point with its lead time, and places a producing
-stage's stations below it.
+stage's stations below it. In either drawing, an arrow that would pass over
+another node (e.g., one that skips a layer) curves around it.
 
 In code, `model.nodes` maps each name to its node in definition order, and
 `model.graph` returns a frozen NetworkX copy of the routes with each edge's
@@ -278,7 +279,10 @@ can change the model.
 isolated frame, and a script calls `.open()` to show it in a browser. The page
 works offline. It adds sources, stations, and the exit to a canvas, connects
 them with arrows, and treats two or more arrows from one node for the same
-customers as a probabilistic branch whose probabilities must sum to one. A side
+customers as a probabilistic branch whose probabilities must sum to one. With
+customer types, a second arrow may join the same two nodes if each arrow carries
+different types (e.g., walk-ins always go from a desk to an exam room, while
+appointments branch from the desk to the exam room or the exit). A side
 panel edits every argument of `Model.source` and `Model.station`, i.e., each
 duration (a constant or a named distribution with its parameters), customer
 types with each source's type mix and the types each arrow carries, arrival-rate
@@ -1928,7 +1932,7 @@ The repository defines these tasks:
 | `pixi run notebook` | Opens the Marimo lesson, which adds controls for staffing, shift and failure-clock rules, and customer timelines. |
 | `pixi run notebook-export` | Executes the lesson and saves `output/lesson.html`. |
 | `pixi run examples` | Runs the five tasks above that execute examples, and fails if Marimo replaced a lesson output with a size warning. |
-| `pixi run check` | Runs the tests, lint, format check, notebook check, and the Pyright type check of `flowsim/`. |
+| `pixi run check` | Runs the tests, lint, format check, notebook check, and the Pyright type check of `flowsim/` and `examples/`. |
 | `pixi run format` | Formats the code with ruff. |
 
 The lock file covers Linux, Windows, Intel Macs, and Apple Silicon Macs, and

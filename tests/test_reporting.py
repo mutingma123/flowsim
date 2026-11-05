@@ -701,6 +701,119 @@ def test_diagram_of_a_complete_model_marks_nothing():
         unlinked.diagram()
 
 
+def test_diagram_curves_an_arrow_that_skips_a_layer():
+    model = Model()
+    walk_ins = model.source(
+        name="Walk-ins",
+        interarrival=1,
+    )
+    register, exam = (
+        model.station(
+            name=name,
+            capacity=1,
+            service_time=1,
+        )
+        for name in ["Register", "Exam"]
+    )
+    model.branch(walk_ins, {register: 0.5, exam: 0.5})
+    model.route([register, exam, model.exit])
+    figure = model.diagram()
+    # Four layers on one row: x runs 700 / 3.9 = 179.49 pixels per layer, and
+    # y runs 270 pixels per unit. The straight arrow from Walk-ins to Exam
+    # crosses Register, so it bends 60 pixels up at its middle, i.e., its
+    # control point sits 120 pixels above Register: (1, 120 / 270 = 0.4444).
+    (shape,) = figure.layout.shapes
+    numbers = [float(value) for value in re.findall(r"-?[\d.]+", shape.path)]
+    # The curve leaves Walk-ins toward the control point, whose direction in
+    # pixels is (179.49, 120) / 215.91 = (0.8313, 0.5558), 0.17 of a layer
+    # (30.51 pixels) from its center: x = 30.51 * 0.8313 / 179.49 = 0.1413 and
+    # y = 30.51 * 0.5558 / 270 = 0.0628. It reaches Exam symmetrically.
+    assert [round(value, 4) for value in numbers] == [
+        0.1413,
+        0.0628,
+        1.0,
+        0.4444,
+        1.8587,
+        0.0628,
+    ]
+    # The curve's arrowhead ends at its tip, and the other arrows stay straight.
+    assert arrows(figure)[1][2:] == (1.86, 0.06)
+    # The curve's share sits on its middle: x = (0.1413 + 2 + 1.8587) / 4 = 1
+    # and y = (0.0628 + 2 * 0.4444 + 0.0628) / 4 = 0.2536.
+    labels = {
+        (item.text, round(item.x, 4), round(item.y, 4))
+        for item in figure.layout.annotations
+        if not item.showarrow
+    }
+    assert ("50%", 1.0, 0.2536) in labels
+
+
+def test_diagram_keeps_a_curve_inside_the_plot():
+    # Two parallel lines, with a branch from S1 that skips A1 to reach B1. A
+    # curve upward would leave the plot, whose top is 0.35 above S1's row.
+    model = Model()
+    s1, s2 = (
+        model.source(
+            name=name,
+            interarrival=1,
+        )
+        for name in ["S1", "S2"]
+    )
+    a1, b1, a2, b2 = (
+        model.station(
+            name=name,
+            capacity=1,
+            service_time=1,
+        )
+        for name in ["A1", "B1", "A2", "B2"]
+    )
+    model.branch(s1, {a1: 0.5, b1: 0.5})
+    model.route([a1, b1, model.exit])
+    model.route([s2, a2, b2, model.exit])
+    figure = model.diagram()
+    (shape,) = figure.layout.shapes
+    x0, y0, cx, cy, x1, y1 = (
+        float(value) for value in re.findall(r"-?[\d.]+", shape.path)
+    )
+    bottom, top = figure.layout.yaxis.range
+    for step in range(41):
+        share = step / 40
+        y = (1 - share) ** 2 * y0 + 2 * (1 - share) * share * cy + share**2 * y1
+        assert bottom < y < top
+    # The curve bends down, toward S2's row, and its share sits on it.
+    assert cy < 0.5
+    assert [item.text for item in figure.layout.annotations if item.text] == [
+        "50%",
+        "50%",
+    ]
+
+
+def test_chain_diagram_drops_a_twin_shift_that_would_cross_a_station():
+    model, consumers, factory = producing_factory()
+    fast, slow = (
+        model.station(
+            name=name,
+            capacity=1,
+            service_time=0.01,
+        )
+        for name in ("Fast", "Slow")
+    )
+    model.branch(factory, {fast: 0.1, slow: 0.9})
+    model.route([fast, factory])
+    model.route([slow, factory])
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    figure = model.diagram()
+    assert not figure.layout.shapes
+    # Shifted 0.2 to its left, the arrow from the factory at (0, 0) to Slow at
+    # (1, -2) would cross Fast's label, so it keeps its unshifted line: unit
+    # vector (0.4472, -0.8944), 0.35 from the factory past its label and 0.17
+    # from Slow, i.e., (0.16, -0.31) to (1 - 0.08, -2 + 0.15).
+    assert (0.16, -0.31, 0.92, -1.85) in arrows(figure)
+
+
 def chain_nodes(figure) -> dict[str, list[tuple[str, float, float]]]:
     """Map each node trace's kind to its (label, x, y) points."""
     return {

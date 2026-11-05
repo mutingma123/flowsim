@@ -902,6 +902,176 @@ def test_builder_writes_customer_types_priorities_and_typed_routes(
     assert [edge["types"] for edge in state["edges"]] == [None, [], ["t1"], None]
 
 
+def edge_ids(page, origin, target):
+    """Return the ids of the arrows from origin to target, in drawing order."""
+    return page.locator(
+        f'.edge-hit[data-from="{origin}"][data-to="{target}"]'
+    ).evaluate_all("items => items.map((item) => item.dataset.edge)")
+
+
+def set_types_of(page, edge, types):
+    """Select one arrow by its id and give it exactly these customer types."""
+    page.focus(f'.edge-hit[data-edge="{edge}"]')
+    page.check("#edge-types-some")
+    for type_id in ["t1", "t2"]:
+        if type_id in types:
+            page.check(f"#edge-type-{type_id}")
+        else:
+            page.uncheck(f"#edge-type-{type_id}")
+
+
+def test_builder_draws_two_routes_between_the_same_nodes_for_different_types(
+    tmp_path, engine_page, monkeypatch
+):
+    page = open_builder(tmp_path, engine_page)
+    customers, service = two_node_model(page)
+    # Without customer types, a second route could not differ from the first.
+    drag_route(page, customers, service)
+    assert "Customers already routes to Service. A second route" in (
+        page.locator("#canvas-status").text_content()
+    )
+    assert len(edge_ids(page, customers, service)) == 1
+    page = open_builder(tmp_path, engine_page)
+    page.fill("#run-duration", "120")
+    page.click("#add-type")
+    page.fill("#type-name-t1", "Walk-in")
+    page.click("#add-type")
+    page.fill("#type-name-t2", "Appointment")
+    customers = add_node(
+        page,
+        kind="source",
+        name="Customers",
+        durations={"interarrival": ("exponential", {"mean": 3})},
+    )
+    page.fill("#field-mix-t1", "0.6")
+    page.fill("#field-mix-t2", "0.4")
+    desk = add_node(
+        page,
+        kind="station",
+        name="Desk",
+        fields={"capacity": 1},
+        durations={"service_time": ("constant", {"value": 1})},
+    )
+    exam = add_node(
+        page,
+        kind="station",
+        name="Exam",
+        fields={"capacity": 2},
+        durations={"service_time": ("uniform", {"low": 3, "high": 6})},
+    )
+    panel_route(page, customers, desk)
+    panel_route(page, exam, "exit")
+    drag_route(page, desk, exam)
+    # With types, a second route to Exam is drawn beside the first, with no
+    # type chosen, and one undo step removes it.
+    drag_route(page, desk, exam)
+    first, second = edge_ids(page, desk, exam)
+    paths = page.locator(
+        f'path.edge[data-from="{desk}"][data-to="{exam}"]'
+    ).evaluate_all("items => items.map((item) => item.getAttribute('d'))")
+    assert len(set(paths)) == 2
+    assert "Route from Desk to Exam needs at least one customer type." in (
+        problems_text(page)
+    )
+    page.keyboard.press("Control+z")
+    assert edge_ids(page, desk, exam) == [first]
+    page.keyboard.press("Control+y")
+    assert edge_ids(page, desk, exam) == [first, second]
+    set_types_of(page, first, ["t1"])
+    set_types_of(page, second, ["t1"])
+    assert "Desk has two routes to Exam for type Walk-in." in problems_text(page)
+    set_types_of(page, second, ["t2"])
+    # Appointments branch from Desk to Exam or the exit.
+    panel_route(page, desk, "exit")
+    (leave,) = edge_ids(page, desk, "exit")
+    set_types_of(page, leave, ["t2"])
+    page.fill(f'.edge-prob[data-edge="{second}"]', "0.3")
+    page.fill(f'.edge-prob[data-edge="{leave}"]', "0.7")
+    assert "No problems found" in problems_text(page)
+    code = page.locator("#code").text_content()
+    assert 'model.route([desk, exam], types=["Walk-in"])\n' in code
+    assert (
+        'model.branch(desk, {exam: 0.3, model.exit: 0.7}, types=["Appointment"])\n'
+        in (code)
+    )
+    results = run_script(code, tmp_path, monkeypatch)
+    model = flowsim.Model()
+    arrivals = model.source(
+        name="Customers",
+        interarrival=flowsim.exponential(mean=3),
+        types={"Walk-in": 0.6, "Appointment": 0.4},
+    )
+    front = model.station(
+        name="Desk",
+        capacity=1,
+        service_time=1,
+    )
+    room = model.station(
+        name="Exam",
+        capacity=2,
+        service_time=flowsim.uniform(
+            low=3,
+            high=6,
+        ),
+    )
+    model.route([arrivals, front])
+    model.route([room, model.exit])
+    model.route([front, room], types=["Walk-in"])
+    model.branch(front, {room: 0.3, model.exit: 0.7}, types=["Appointment"])
+    assert_same_run(
+        results,
+        model.run(
+            duration=120,
+            seed=42,
+        ),
+    )
+    # Saving and loading keeps both routes.
+    state = page.evaluate("window.flowsimBuilder.state()")
+    path = tmp_path / "two-routes.json"
+    path.write_text(json.dumps(state), encoding="utf-8")
+    page.set_input_files("#load-json", str(path))
+    wait_for_status(page, "Loaded two-routes.json")
+    assert page.evaluate("window.flowsimBuilder.state()") == state
+    assert page.locator("#code").text_content() == code
+    # On a diagonal, each parallel arrow starts and ends outside the boxes,
+    # which are 150 by 58 pixels and drawn over the arrows, with two arrows
+    # and with three.
+    for node in state["nodes"]:
+        if node["id"] == desk:
+            node.update(x=30, y=40)
+        if node["id"] == exam:
+            node.update(x=205, y=155)
+    path.write_text(json.dumps(state), encoding="utf-8")
+    page.set_input_files("#load-json", str(path))
+    wait_for_status(page, "Loaded two-routes.json")
+
+    def ends_outside(count):
+        paths = page.locator(
+            f'path.edge[data-from="{desk}"][data-to="{exam}"]'
+        ).evaluate_all("items => items.map((item) => item.getAttribute('d'))")
+        assert len(paths) == count
+        for d in paths:
+            numbers = [float(value) for value in re.findall(r"-?[\d.]+", d)]
+            (x0, y0), (x1, y1) = numbers[:2], numbers[-2:]
+            assert not (30 <= x0 <= 180 and 40 <= y0 <= 98)
+            assert not (205 <= x1 <= 355 and 155 <= y1 <= 213)
+
+    ends_outside(2)
+    drag_route(page, desk, exam)
+    ends_outside(3)
+    page.keyboard.press("Control+z")
+    ends_outside(2)
+    # The last type cannot go while two routes join Desk and Exam.
+    page.click('.remove-type[data-type="t2"]')
+    page.click('.remove-type[data-type="t1"]')
+    assert "Remove a route from Desk to Exam first." in (
+        page.locator("#canvas-status").text_content()
+    )
+    assert [
+        item["name"] for item in page.evaluate("window.flowsimBuilder.state()")["types"]
+    ] == ["Walk-in"]
+
+
 def test_builder_writes_schedules_buffers_abandonment_and_failures(
     tmp_path, engine_page, monkeypatch
 ):

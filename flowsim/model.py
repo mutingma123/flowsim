@@ -1389,7 +1389,8 @@ class Model:
         first, so an incomplete model raises the error that run() would raise.
         A supply chain draws the outside supplier, its stock points, and
         demand in one row, with each stock point's lead time on the arrow into
-        it and a producing stage's stations below it.
+        it and a producing stage's stations below it. In either drawing, an
+        arrow that would pass over another node curves around it.
 
         Parameters
         ----------
