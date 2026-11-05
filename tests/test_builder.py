@@ -163,13 +163,16 @@ def run_script(code, tmp_path, monkeypatch):
     script.parent.mkdir()
     script.write_text(code, encoding="utf-8")
     ruff = shutil.which("ruff")
-    if ruff is not None:
-        formatted = subprocess.run(
-            [ruff, "format", "--diff", str(script)],
-            capture_output=True,
-            text=True,
+    if ruff is None:
+        pytest.fail(
+            "ruff is not on PATH; run the tests through pixi so the formatting check runs."
         )
-        assert formatted.returncode == 0, formatted.stdout + formatted.stderr
+    formatted = subprocess.run(
+        [ruff, "format", "--diff", str(script)],
+        capture_output=True,
+        text=True,
+    )
+    assert formatted.returncode == 0, formatted.stdout + formatted.stderr
     monkeypatch.chdir(script.parent)
     return runpy.run_path(str(script), run_name="__main__")["results"]
 

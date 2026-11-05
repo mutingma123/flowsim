@@ -1,6 +1,6 @@
 # H5 Reuse one browser per engine
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H2 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -54,4 +54,27 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 487 passed @ 9ae5c76, suite 218.0 s inside the H2 gate.
+- first gates (logs/2026-11-05-1159-gate-*-H5.log): all passed, suite 152.2 s.
+- after the review fix (logs/2026-11-05-1204-gate-*-H5.log): check EXIT=0, 487 passed in
+  155.1 s; examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 109 (12.0);
+  bench run 4.389 s, compare 1.159 s, dashboard 4.938 s, all inside their bands.
+- mutation: not rerun; the sample skips the browser fixtures, and run_script serves only
+  browser tests.
+
 ## Result
+
+tests/conftest.py launches each engine's browser once per session, on first use, and gives
+each test a fresh context with the offline routes and the page-error check; fixture names and
+behavior are unchanged, so no test changed. The two browser test files fell from 224.8 s to
+136.9 s in the implementer's run, and the suite inside the gate from 218.0 s to 155.1 s
+(closure: at least 30 s faster). run_script now fails when ruff is missing instead of skipping
+the formatting check. One behavior difference: pages opened within one test now share that
+test's context, where each page had its own; all 72 browser tests pass that way.
+
+Codex adversarial review (streams/reviews/H5-codex.md), one medium finding, accepted after
+checking the code: a crashed browser stayed cached, so every later test in that engine would
+fail. Fixed: a cached browser is reused only while is_connected(), otherwise replaced. A
+temporary probe closed the cached Chromium and confirmed the next request launched a working
+one; it was deleted afterward. Codex's proposed permanent regression test was not added, since
+it would launch an extra browser in every suite run to test the test harness.
