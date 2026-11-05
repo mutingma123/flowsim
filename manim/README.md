@@ -11,6 +11,7 @@ until the presenter advances it. The setup was copied from
 | `service-day/` | FlowSim: staffing a service day (the classroom exercise) | https://youtu.be/z-lPhexe7ZY |
 | `machining-line/` | FlowSim: modeling a machining line (bottleneck, buffer plans, CNC failures, lunch staffing) | https://youtu.be/kY1KzMO9g-I |
 | `supply-chain/` | FlowSim: the bullwhip effect (four stages, demand sharing, brewing capacity) | https://youtu.be/SbkiDw28vhI |
+| `builder/` | FlowSim: drawing a model in the builder (the clinic drawn, checked, typed, run, and explored) | Not yet uploaded |
 
 The four uploads are also in one unlisted
 [playlist](https://www.youtube.com/playlist?list=PLGOCHatbz0gA). A re-rendered video

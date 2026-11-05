@@ -1,0 +1,179 @@
+{
+  "format": "flowsim-builder",
+  "version": 2,
+  "flowsim_version": "1.0.0",
+  "time_unit": "minutes",
+  "run": {
+    "duration": 240,
+    "seed": 42,
+    "drain": false
+  },
+  "types": [
+    {
+      "id": "t1",
+      "name": "Walk-in"
+    },
+    {
+      "id": "t2",
+      "name": "Appointment"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "exit",
+      "kind": "exit",
+      "name": "Exit",
+      "x": 721,
+      "y": 330
+    },
+    {
+      "id": "n1",
+      "kind": "source",
+      "name": "Customers",
+      "x": 40,
+      "y": 230,
+      "interarrival": {
+        "name": "exponential",
+        "mean": 3
+      },
+      "first_arrival": null,
+      "limit": null,
+      "arrivals": "interarrival",
+      "rates": [
+        {
+          "start": 0,
+          "value": null
+        }
+      ],
+      "mix": {
+        "t1": 0.6,
+        "t2": 0.4
+      }
+    },
+    {
+      "id": "n2",
+      "kind": "station",
+      "name": "Desk",
+      "x": 250,
+      "y": 230,
+      "capacity": 1,
+      "service_time": {
+        "name": "constant",
+        "value": 1
+      },
+      "service_by_type": false,
+      "service_times": {},
+      "staffing_on": false,
+      "staffing": [
+        {
+          "start": 0,
+          "value": null
+        }
+      ],
+      "shift_end": "",
+      "buffer": null,
+      "external_overflow": "",
+      "abandon_on": false,
+      "patience": {
+        "name": ""
+      },
+      "patience_by_type": false,
+      "patience_times": {},
+      "abandon_from": "",
+      "failures_on": false,
+      "time_to_failure": {
+        "name": ""
+      },
+      "repair_time": {
+        "name": ""
+      },
+      "failure_clock": "",
+      "priority_on": false,
+      "priority": {}
+    },
+    {
+      "id": "n3",
+      "kind": "station",
+      "name": "Exam",
+      "x": 521,
+      "y": 110,
+      "capacity": 2,
+      "service_time": {
+        "name": "uniform",
+        "low": 3,
+        "high": 6
+      },
+      "service_by_type": false,
+      "service_times": {},
+      "staffing_on": true,
+      "staffing": [
+        {
+          "start": 0,
+          "value": 1
+        },
+        {
+          "start": 60,
+          "value": 2
+        }
+      ],
+      "shift_end": "finish",
+      "buffer": null,
+      "external_overflow": "",
+      "abandon_on": false,
+      "patience": {
+        "name": ""
+      },
+      "patience_by_type": false,
+      "patience_times": {},
+      "abandon_from": "",
+      "failures_on": false,
+      "time_to_failure": {
+        "name": ""
+      },
+      "repair_time": {
+        "name": ""
+      },
+      "failure_clock": "",
+      "priority_on": false,
+      "priority": {}
+    }
+  ],
+  "edges": [
+    {
+      "from": "n1",
+      "to": "n2",
+      "probability": 1,
+      "types": null
+    },
+    {
+      "from": "n2",
+      "to": "n3",
+      "probability": 0.3,
+      "types": [
+        "t2"
+      ]
+    },
+    {
+      "from": "n3",
+      "to": "exit",
+      "probability": 1,
+      "types": null
+    },
+    {
+      "from": "n2",
+      "to": "exit",
+      "probability": 0.7,
+      "types": [
+        "t2"
+      ]
+    },
+    {
+      "from": "n2",
+      "to": "n3",
+      "probability": 1,
+      "types": [
+        "t1"
+      ]
+    }
+  ]
+}

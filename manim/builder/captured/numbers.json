@@ -1,0 +1,625 @@
+{
+  "sources": {
+    "manim/builder/snippets/flowsim_model.py": "d425e911d8a231d4675f1c8648651abcf5be175905c9782c6ad94339163743af",
+    "manim/builder/snippets/flowsim_model.json": "539d1587421abf9e1b338c990f275543418c6e489effcb7674c4643658dc45f4",
+    "manim/builder/snippets/flowsim_model_extended.py": "8eeef5ed8b401d876374e5560de47618fb16bc98c820d69d072f08373216f81e",
+    "flowsim/builder.html": "4e5ee1f74fdda60a3729873684b9a69ed8af91aa77ef5f7a9095a055bcb5a7e9",
+    "manim/builder/capture.py": "01d1916e71d52d26f89bcd775b274dcb4c4a7dcd2252d24d756f757ae6f742c9"
+  },
+  "images": {
+    "open_page": {
+      "file": "open_page.png",
+      "size": [
+        2800,
+        3124
+      ],
+      "sha256": "f33d073ce9b65fea3fd846388fd711a69609c4ee4bc8815ee30f6911fba0c829"
+    },
+    "open_toolbar": {
+      "file": "open_toolbar.png",
+      "size": [
+        2560,
+        168
+      ],
+      "sha256": "d8a9c9194bedab0ad4356e7cbeb878c466e2f8e372f3571788d2591eef1e803f"
+    },
+    "open_canvas": {
+      "file": "open_canvas.png",
+      "size": [
+        1848,
+        1336
+      ],
+      "sha256": "b34012b7e4d0903fa6d1cf1496df4104d9b493ac0ca09dfa20281a25c26d93d6"
+    },
+    "open_panel": {
+      "file": "open_panel.png",
+      "size": [
+        668,
+        225
+      ],
+      "sha256": "a9c6fe44a9a6820c447ae1168fd04a10499cf8f5f52a20cc44e76d89dc6f73a5"
+    },
+    "open_checks": {
+      "file": "open_checks.png",
+      "size": [
+        2544,
+        242
+      ],
+      "sha256": "98282a766a277af57bb47c5c31b325b36c2a2f1c4eb94185ed24f0fee61e54b7"
+    },
+    "open_script": {
+      "file": "open_script.png",
+      "size": [
+        2544,
+        642
+      ],
+      "sha256": "0ef13e36b0653cac8c5b7cb5bcbbb3a6555a9131efa7a31d3910411671104bb1"
+    },
+    "network": {
+      "file": "network.png",
+      "size": [
+        1707,
+        635
+      ],
+      "sha256": "881a53d9cbc04d1bc59f75546c00d77d13fc7f2fd6959830ea3ea2c148425a7d"
+    },
+    "branch_wrong": {
+      "file": "branch_wrong.png",
+      "size": [
+        1707,
+        635
+      ],
+      "sha256": "9375ec45324db697b1eb3f4ae927f0cfb276c6fe02c403fec8ac143e192e5093"
+    },
+    "branch_right": {
+      "file": "branch_right.png",
+      "size": [
+        1707,
+        635
+      ],
+      "sha256": "ad6c375a04868401a5cca726248198092d72deb55a1eca9dc3a008574b42bee4"
+    },
+    "panel_source": {
+      "file": "panel_source.png",
+      "size": [
+        668,
+        801
+      ],
+      "sha256": "4a1a88fc5d06b90bf35d5f57e5685cbe99a0a7b16bd1d8260df32996d96173ae"
+    },
+    "panel_desk": {
+      "file": "panel_desk.png",
+      "size": [
+        668,
+        633
+      ],
+      "sha256": "823c0ecd84dce9f0690d8b7fb1532f7d8d7f080854cddd37b363a89f4ef63cf0"
+    },
+    "panel_exam": {
+      "file": "panel_exam.png",
+      "size": [
+        668,
+        864
+      ],
+      "sha256": "f43598b81f60b9cede6ef2a6d930bb5bdf111381319b8c858ca4919a4db3f722"
+    },
+    "panel_staffing": {
+      "file": "panel_staffing.png",
+      "size": [
+        668,
+        939
+      ],
+      "sha256": "13b503681da2f88164a1d2d72c227bb1b459c8316befa45c9419e473041ee62d"
+    },
+    "panel_staffing_chosen": {
+      "file": "panel_staffing_chosen.png",
+      "size": [
+        668,
+        866
+      ],
+      "sha256": "0c213d7cdf5ccae9bb7ee71e1c3e557d2a8cb549a14d0f475d0fc94cd107d144"
+    },
+    "panel_mix": {
+      "file": "panel_mix.png",
+      "size": [
+        668,
+        413
+      ],
+      "sha256": "0d1ca9c7a3fa88c9c21b7866c768be0df9fff15eda4c1bc4aefbb1fada728064"
+    },
+    "typed_canvas": {
+      "file": "typed_canvas.png",
+      "size": [
+        1707,
+        635
+      ],
+      "sha256": "4ce3ac3556da65a6d3682759da1854fb6509c7f73d4ba88e688ce9b83fb3ba6e"
+    },
+    "loaded_toolbar": {
+      "file": "loaded_toolbar.png",
+      "size": [
+        2544,
+        152
+      ],
+      "sha256": "9df07d8383249a6098641d07557d42aabed7480631749b7524c8fb8ba1c68f01"
+    },
+    "dashboard": {
+      "file": "dashboard.png",
+      "size": [
+        1888,
+        1268
+      ],
+      "sha256": "d4b0070f5109c9f490e869ae941db55967d31256e700e19b5f1831b8c1829382"
+    },
+    "dashboard_runs": {
+      "file": "dashboard_runs.png",
+      "size": [
+        1888,
+        1180
+      ],
+      "sha256": "6642941bb4e47de5c4d5a85050669933fdac82a61f889b5a03589b1653335d0e"
+    },
+    "dashboard_run": {
+      "file": "dashboard_run.png",
+      "size": [
+        2288,
+        1358
+      ],
+      "sha256": "0c1afade2bc230a0a8051623e3ee24d11245d6c88b5779ca020da6c133a06d4e"
+    }
+  },
+  "steps": {
+    "open": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model\n\nmodel = Model(time_unit=\"minutes\")\n\nresults = model.run(\n    duration=480,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "Add a source, where customers arrive.\nExit: No source reaches it."
+    },
+    "network": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=4),\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=exponential(mean=4),\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=1,\n    service_time=exponential(mean=4),\n)\nmodel.route([customers, desk, exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "No problems found in the page. The page checks routes, probabilities, choices, and single values; the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs."
+    },
+    "branch_wrong": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=4),\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=exponential(mean=4),\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=1,\n    service_time=exponential(mean=4),\n)\nmodel.route([customers, desk])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.6})\nmodel.route([exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "Branch probabilities from Desk sum to 0.9, not 1."
+    },
+    "branch": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=4),\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=exponential(mean=4),\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=1,\n    service_time=exponential(mean=4),\n)\nmodel.route([customers, desk])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7})\nmodel.route([exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "No problems found in the page. The page checks routes, probabilities, choices, and single values; the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs."
+    },
+    "times": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n)\nmodel.route([customers, desk])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7})\nmodel.route([exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "No problems found in the page. The page checks routes, probabilities, choices, and single values; the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs."
+    },
+    "unchosen": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n    staffing=[(0, 1), (60, 2)],\n    shift_end=None,\n)\nmodel.route([customers, desk])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7})\nmodel.route([exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "Exam: choose what an off-duty server does with its current job (shift_end)."
+    },
+    "chosen": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n    staffing=[(0, 1), (60, 2)],\n    shift_end=\"finish\",\n)\nmodel.route([customers, desk])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7})\nmodel.route([exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "No problems found in the page. The page checks routes, probabilities, choices, and single values; the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs."
+    },
+    "types_added": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n    types={\"Walk-in\": None, \"Appointment\": None},\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n    staffing=[(0, 1), (60, 2)],\n    shift_end=\"finish\",\n)\nmodel.route([customers, desk])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7})\nmodel.route([exam, model.exit])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "Customers: probability of Walk-in needs a value.\nCustomers: probability of Appointment needs a value."
+    },
+    "walk_in_missing": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n    types={\"Walk-in\": 0.6, \"Appointment\": 0.4},\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n    staffing=[(0, 1), (60, 2)],\n    shift_end=\"finish\",\n)\nmodel.route([customers, desk])\nmodel.route([exam, model.exit])\nmodel.branch(desk, {exam: 0.5, model.exit: 0.5}, types=[\"Appointment\"])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "Desk has no route for type Walk-in, which can reach it from Customers."
+    },
+    "typed": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n    types={\"Walk-in\": 0.6, \"Appointment\": 0.4},\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n    staffing=[(0, 1), (60, 2)],\n    shift_end=\"finish\",\n)\nmodel.route([customers, desk])\nmodel.route([exam, model.exit])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7}, types=[\"Appointment\"])\nmodel.route([desk, exam], types=[\"Walk-in\"])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "No problems found in the page. The page checks routes, probabilities, choices, and single values; the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs."
+    },
+    "download_name": "flowsim_model.py",
+    "model_file_name": "flowsim_model.json",
+    "cleared": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model\n\nmodel = Model(time_unit=\"minutes\")\n\nresults = model.run(\n    duration=480,\n    seed=42,\n)\nprint(results)\n"
+    },
+    "loaded": {
+      "code": "\"\"\"A FlowSim model drawn in the model builder. Edit it like any FlowSim script.\"\"\"\n\nfrom flowsim import Model, exponential, uniform\n\nmodel = Model(time_unit=\"minutes\")\ncustomers = model.source(\n    name=\"Customers\",\n    interarrival=exponential(mean=3),\n    types={\"Walk-in\": 0.6, \"Appointment\": 0.4},\n)\ndesk = model.station(\n    name=\"Desk\",\n    capacity=1,\n    service_time=1,\n)\nexam = model.station(\n    name=\"Exam\",\n    capacity=2,\n    service_time=uniform(\n        low=3,\n        high=6,\n    ),\n    staffing=[(0, 1), (60, 2)],\n    shift_end=\"finish\",\n)\nmodel.route([customers, desk])\nmodel.route([exam, model.exit])\nmodel.branch(desk, {exam: 0.3, model.exit: 0.7}, types=[\"Appointment\"])\nmodel.route([desk, exam], types=[\"Walk-in\"])\n\nresults = model.run(\n    duration=240,\n    seed=42,\n)\nprint(results)\n",
+      "checks": "No problems found in the page. The page checks routes, probabilities, choices, and single values; the distribution constructors check how parameters relate (e.g., low below high) and FlowSim validates the model when the script runs.",
+      "status": "Loaded flowsim_model.json."
+    }
+  },
+  "regions": {
+    "toolbar": [
+      64,
+      190,
+      1272,
+      76
+    ],
+    "canvas": [
+      64,
+      374.796875,
+      916,
+      660.171875
+    ],
+    "panel": [
+      996,
+      374.796875,
+      340,
+      640
+    ],
+    "checks": [
+      64,
+      1066.96875,
+      1272,
+      120
+    ],
+    "script": [
+      64,
+      1202.96875,
+      1272,
+      319.5
+    ]
+  },
+  "page_size": [
+    1400,
+    1562
+  ],
+  "model_file": {
+    "format": "flowsim-builder",
+    "version": 2,
+    "flowsim_version": "1.0.0",
+    "time_unit": "minutes",
+    "run": {
+      "duration": 240,
+      "seed": 42,
+      "drain": false
+    },
+    "types": [
+      {
+        "id": "t1",
+        "name": "Walk-in"
+      },
+      {
+        "id": "t2",
+        "name": "Appointment"
+      }
+    ],
+    "nodes": [
+      {
+        "id": "exit",
+        "kind": "exit",
+        "name": "Exit",
+        "x": 721,
+        "y": 330
+      },
+      {
+        "id": "n1",
+        "kind": "source",
+        "name": "Customers",
+        "x": 40,
+        "y": 230,
+        "interarrival": {
+          "name": "exponential",
+          "mean": 3
+        },
+        "first_arrival": null,
+        "limit": null,
+        "arrivals": "interarrival",
+        "rates": [
+          {
+            "start": 0,
+            "value": null
+          }
+        ],
+        "mix": {
+          "t1": 0.6,
+          "t2": 0.4
+        }
+      },
+      {
+        "id": "n2",
+        "kind": "station",
+        "name": "Desk",
+        "x": 250,
+        "y": 230,
+        "capacity": 1,
+        "service_time": {
+          "name": "constant",
+          "value": 1
+        },
+        "service_by_type": false,
+        "service_times": {},
+        "staffing_on": false,
+        "staffing": [
+          {
+            "start": 0,
+            "value": null
+          }
+        ],
+        "shift_end": "",
+        "buffer": null,
+        "external_overflow": "",
+        "abandon_on": false,
+        "patience": {
+          "name": ""
+        },
+        "patience_by_type": false,
+        "patience_times": {},
+        "abandon_from": "",
+        "failures_on": false,
+        "time_to_failure": {
+          "name": ""
+        },
+        "repair_time": {
+          "name": ""
+        },
+        "failure_clock": "",
+        "priority_on": false,
+        "priority": {}
+      },
+      {
+        "id": "n3",
+        "kind": "station",
+        "name": "Exam",
+        "x": 521,
+        "y": 110,
+        "capacity": 2,
+        "service_time": {
+          "name": "uniform",
+          "low": 3,
+          "high": 6
+        },
+        "service_by_type": false,
+        "service_times": {},
+        "staffing_on": true,
+        "staffing": [
+          {
+            "start": 0,
+            "value": 1
+          },
+          {
+            "start": 60,
+            "value": 2
+          }
+        ],
+        "shift_end": "finish",
+        "buffer": null,
+        "external_overflow": "",
+        "abandon_on": false,
+        "patience": {
+          "name": ""
+        },
+        "patience_by_type": false,
+        "patience_times": {},
+        "abandon_from": "",
+        "failures_on": false,
+        "time_to_failure": {
+          "name": ""
+        },
+        "repair_time": {
+          "name": ""
+        },
+        "failure_clock": "",
+        "priority_on": false,
+        "priority": {}
+      }
+    ],
+    "edges": [
+      {
+        "from": "n1",
+        "to": "n2",
+        "probability": 1,
+        "types": null
+      },
+      {
+        "from": "n2",
+        "to": "n3",
+        "probability": 0.3,
+        "types": [
+          "t2"
+        ]
+      },
+      {
+        "from": "n3",
+        "to": "exit",
+        "probability": 1,
+        "types": null
+      },
+      {
+        "from": "n2",
+        "to": "exit",
+        "probability": 0.7,
+        "types": [
+          "t2"
+        ]
+      },
+      {
+        "from": "n2",
+        "to": "n3",
+        "probability": 1,
+        "types": [
+          "t1"
+        ]
+      }
+    ]
+  },
+  "unchosen_error": "Scheduled staffing requires shift_end='finish' or 'pause'.",
+  "printed": "Results: service network, 240 minutes\n  Run: 240 minutes, warm-up 0, not drained, ends at 240\n  Seed: 42\n    model.experiment(...) spawns each replication's seed from its seed argument, so replication 1's seed differs from a single run's seed.\n  Summary: arrivals 88, completed 86, mean_total_wait 3.05, mean_flow_time 7.26\n  Stations: Desk: mean_wait 0.345, utilization 0.363\n    Exam: mean_wait 3.69, utilization 0.576\n  Tables: customers, visits, states, stations, summary, activities, failures\n  Next: results.report(), results.plot_queue(), results.plot_wait(), results.plot_utilization()\n    results.viewer(), results.export(folder), flowsim.explain(name)\n",
+  "run": {
+    "arrivals": 88,
+    "completed": 86,
+    "mean_total_wait": 3.0506275247175605,
+    "mean_flow_time": 7.260664488673107,
+    "throughput": 0.35833333333333334,
+    "overtime": 0.0,
+    "admitted": 88,
+    "admitted_at_close": 88,
+    "outside_at_close": 0,
+    "rejected": 0,
+    "abandoned": 0,
+    "remaining": 2,
+    "completed_at_close": 86,
+    "remaining_at_close": 2,
+    "after_close_completions": 0,
+    "end_time": 240.0,
+    "measurement_arrivals": 88,
+    "measurement_rejected": 0,
+    "measurement_abandoned": 0,
+    "abandonment_rate": 0.0,
+    "measurement_admitted": 88,
+    "cohort_arrivals": 88,
+    "measurement_completions": 86,
+    "cohort_completions": 86,
+    "cohort_remaining": 2,
+    "mean_total_blocked": 0.0,
+    "mean_outside_wait": 0.0,
+    "mean_wip": 2.6088362395837548,
+    "seed": 42,
+    "duration": 240.0
+  },
+  "types": [
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Appointment",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Appointment",
+    "Walk-in",
+    "Walk-in",
+    "Appointment",
+    "Walk-in"
+  ],
+  "stations": [
+    {
+      "station": "Desk",
+      "mean_wait": 0.3453398855636886,
+      "utilization": 0.3633244870358245
+    },
+    {
+      "station": "Exam",
+      "mean_wait": 3.6868548395733938,
+      "utilization": 0.5755438662266141
+    }
+  ],
+  "experiment": {
+    "runs": [
+      3.429929365516291,
+      1.6510789264706711,
+      0.9021923325840694,
+      0.6945347913811016,
+      1.8520675925405177,
+      2.4221664047110183,
+      0.874240324275194,
+      2.5858323125121925,
+      2.3829395101867297,
+      1.1390153479956155,
+      0.6351283703484365,
+      1.6687466979750094,
+      1.7293813525190687,
+      4.782958288839493,
+      0.8185198252013474,
+      0.5135736111980361,
+      1.6359383694383707,
+      3.6006548858859713,
+      1.7242818723907338,
+      0.49548932850319344
+    ],
+    "mean": 1.7769334755236528,
+    "lower": 1.2378390554131031,
+    "upper": 2.3160278956342024,
+    "replications": 20,
+    "seeds": [
+      2684470948,
+      4091952314,
+      233227757,
+      3276785861,
+      3644269654,
+      1206282609,
+      3543069911,
+      3479688010,
+      877132087,
+      1244265337,
+      2740186692,
+      3884972972,
+      829139639,
+      2545567356,
+      2718398101,
+      176092387,
+      3528048386,
+      569531098,
+      1337295874,
+      612016888
+    ]
+  },
+  "dashboard_bytes": 9147640
+}
