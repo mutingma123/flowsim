@@ -35,7 +35,7 @@ from flowsim.fitting import (
 )
 from flowsim.model import Model, Node
 from flowsim.policies import moving_average, order_up_to
-from flowsim.results import Experiment, Results, Settings
+from flowsim.results import Experiment, Results, Settings, SupplySettings
 from flowsim.viewer import Viewer
 
 __all__ = [
@@ -51,6 +51,7 @@ __all__ = [
     "Node",
     "Results",
     "Settings",
+    "SupplySettings",
     "Viewer",
     "best_fit",
     "beta",
