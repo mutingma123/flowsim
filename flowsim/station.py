@@ -84,6 +84,9 @@ class _Server:
         return self.scheduled and not self.down and self.ticket is None
 
     def pulse(self) -> None:
+        # An event nobody waits on moves neither the clock nor the order of other events.
+        if not self.changed.callbacks:
+            return
         prior = self.changed
         self.changed = self.run.scheduler.event()
         prior.succeed()
@@ -94,6 +97,12 @@ class _Server:
         now = float(self.run.scheduler.now)
         if self.activity is not None:
             self.activity.end = now
+            activities = self.run.activities
+            if (
+                self.activity.end == self.activity.start
+                and activities[-1] is self.activity
+            ):
+                activities.pop()
         self.phase = phase
         self.activity = None
         if self.ticket is not None and phase != Phase.IDLE:
@@ -301,7 +310,7 @@ class _Station:
                 if self.node.abandon_from == "waiting_and_outside":
                     self.start_patience(ticket)
             self.check_drain()
-        self.run.observe(self.node.name)
+            self.run.observe(self.node.name)
         return ticket
 
     def place(self, ticket: _Ticket) -> None:

@@ -1,6 +1,6 @@
 # H1 Engine event overhead
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: none
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -55,4 +55,26 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 485 passed @ 2b807f3
+- gates (logs/2026-11-05-1122-gate-*-H1.log, logs/2026-11-05-1128-gate-bench-H1.log): check EXIT=0,
+  485 passed in 300.8 s; examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 109
+  (12.1); bench run 4.192 s and 376 MB, compare 1.141 s and 184 MB, dashboard 4.695 s and 292 MB.
+- mutation (logs/2026-11-05-1129-mutation-H1-*.log): station 430/480 (89.6%), engine 738/826,
+  results metrics 745/807.
+
 ## Result
+
+All three edits are in flowsim/station.py: pulse() returns when no callback waits on the changed
+event; admit() observes only on the pending path, since dispatch() observes on every path it
+takes; set_phase() pops a zero-length activity that is still the last record (engine.py's
+filter stays as a backstop). Every record and exported number is unchanged (golden match). The
+long run is 13.5% faster (4.848 s to 4.192 s), beyond its noise band; compare and dashboard
+also fell (1.269 s to 1.141 s, 5.088 s to 4.695 s). Implemented by a Sonnet subagent and
+reviewed against the scheduler by the session.
+
+Codex adversarial review (streams/reviews/H1-codex.md): approve, no findings. Its suggested
+runtime comparison across shifts, failures, transfers, and drain boundaries is what the golden
+check covers through the extension and operations examples.
+
+Choices made: the per-capacity server counters from Reader 1 finding 1 were left out, since
+they pay only from capacity 50 up.
