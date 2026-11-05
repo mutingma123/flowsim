@@ -9,8 +9,7 @@ stock point.
 
 from __future__ import annotations
 
-import html
-import re
+import math
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -19,10 +18,23 @@ import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
-from flowsim.plots import BLUE, GRAY, STAGE_COLORS, label, style
+from flowsim.plots import (
+    BLUE,
+    GRAY,
+    STAGE_COLORS,
+    building_page,
+    fill_template,
+    label,
+    page_figure,
+    page_json,
+    page_parts,
+    run_payload,
+    style,
+)
 from flowsim.results import (
     METRICS,
     Inapplicable,
+    PageExperiment,
     _write_metadata,
     confidence_level,
     inapplicable,
@@ -335,6 +347,16 @@ def comparison_differences(
     )
 
 
+def metric_axis_label(metric: str, place: str | None, time_unit: str) -> str:
+    """Name a metric's value axis, with its location and units."""
+    text = METRICS[metric].label
+    if place is not None:
+        text += f" at {place}"
+    if METRICS[metric].kind != "fraction":
+        text += f" ({metric_units(metric, time_unit)})"
+    return text
+
+
 def interval_figure(
     table: pl.DataFrame,
     metric: str,
@@ -396,11 +418,11 @@ def interval_figure(
             )
         )
     fraction = METRICS[metric].kind == "fraction"
-    axis_label = METRICS[metric].label
-    if len(places) == 1 and places[0] is not None:
-        axis_label += f" at {places[0]}"
-    if not fraction:
-        axis_label += f" ({metric_units(metric, time_unit)})"
+    axis_label = metric_axis_label(
+        metric=metric,
+        place=places[0] if len(places) == 1 else None,
+        time_unit=time_unit,
+    )
     if differences:
         axis_label = "Difference in " + axis_label[0].lower() + axis_label[1:]
     if scenarios:
@@ -461,97 +483,304 @@ def window_text(
     )
 
 
-def page(
-    *,
-    heading: str,
-    text: str,
+def replication_figure(
+    values: Mapping[str | None, list[float | None]],
+    scenarios: list[str | None],
     metric: str,
-    table: pl.DataFrame,
+    place: str | None,
     time_unit: str,
-    confidence: float,
-    means: go.Figure,
-    changes: go.Figure | None = None,
-    reference: str | None = None,
-) -> str:
-    """Fill the offline report template with one metric's intervals.
+) -> go.Figure:
+    """Plot each replication's value, one marker series per scenario.
 
-    The page shows the interval plot and table, and, when changes is given,
-    the paired differences from the reference scenario.
+    The values map each scenario (None for an experiment) to its runs in
+    replication order, and a missing value leaves a gap. A scenario without
+    the location has no values. Each point's customdata holds its scenario's
+    position in scenarios, the full list, and its replication, both counted
+    from 0, which the dashboard uses to open that run. The position also sets
+    the color, so a scenario keeps its color at every location.
     """
-    # plots.style sets an 800-pixel width, so let each card set the width.
-    for figure in (means, changes):
-        if figure is not None:
-            figure.update_layout(width=None, autosize=True)
-    means_html = means.to_html(
-        full_html=False,
-        include_plotlyjs=True,
-        div_id="scenario-means",
+    figure = go.Figure()
+    for scenario, runs in values.items():
+        index = scenarios.index(scenario)
+        figure.add_trace(
+            go.Scatter(
+                x=list(range(1, len(runs) + 1)),
+                y=runs,
+                name="Runs" if scenario is None else label(scenario),
+                mode="markers",
+                marker={
+                    "size": 10,
+                    "color": STAGE_COLORS[index % len(STAGE_COLORS)],
+                    "line": {"color": "black", "width": 1},
+                },
+                customdata=[[index, run] for run in range(len(runs))],
+                showlegend=scenario is not None,
+                hovertemplate=(
+                    ("" if scenario is None else f"{label(scenario)}<br>")
+                    + "Replication %{x}<br>Value: %{y:.3f}<extra></extra>"
+                ),
+            )
+        )
+    style(
+        figure=figure,
+        x_label="Replication",
+        y_label=metric_axis_label(
+            metric=metric,
+            place=place,
+            time_unit=time_unit,
+        ),
     )
-    fraction = METRICS[metric].kind == "fraction"
-    units = html.escape("percent" if fraction else metric_units(metric, time_unit))
+    figure.update_layout(
+        height=380,
+        margin={"l": 85, "r": 30, "t": 60, "b": 70},
+    )
+    figure.update_xaxes(rangemode="normal")
+    if METRICS[metric].kind == "fraction":
+        figure.update_yaxes(tickformat=".0%")
+    return figure
+
+
+# Metric menu headings, in catalog order.
+_GROUPS = [
+    ("system", "System metrics"),
+    ("station", "Station metrics"),
+    ("stock_point", "Stock-point metrics"),
+]
+
+
+def scenario_runs(
+    experiments: Mapping[str, Experiment],
+    found: Mapping[str, list[str | None]],
+    metric: str,
+    place: str | None,
+) -> dict[str | None, list[float | None]]:
+    """Return each scenario's run values at one location, None where missing.
+
+    A scenario without the location is left out.
+    """
+    runs: dict[str | None, list[float | None]] = {}
+    for name, experiment in experiments.items():
+        if place not in found[name]:
+            continue
+        values = run_values(
+            experiment=experiment,
+            metric=metric,
+            names=[place],
+        )[place]
+        runs[name] = [None if math.isnan(value) else float(value) for value in values]
+    return runs
+
+
+def metric_entry(
+    experiments: Mapping[str, Experiment],
+    metric: str,
+    comparing: bool,
+    level: float,
+) -> dict | None:
+    """Return one metric's dashboard views, one per location, or None.
+
+    None means no scenario's model can measure the metric. Each view holds
+    the interval table and figure, the per-replication figure, and, in a
+    comparison, the paired differences from each scenario as the baseline.
+    """
+    try:
+        found = scenario_locations(
+            experiments=experiments,
+            metric=metric,
+            station=None,
+            stock_point=None,
+        )
+    except Inapplicable:
+        return None
+    places = list(dict.fromkeys(place for chosen in found.values() for place in chosen))
+    first = next(iter(experiments.values()))
+    settings = first.settings
     column = location_column(metric)
-    # The location column appears when the table names a location.
-    keys = [
-        key
-        for key in ["scenario", column]
-        if key in table.columns and table.get_column(key).drop_nulls().len() > 0
-    ]
-
-    def cell(row: dict, key: str) -> str:
-        if row["mean"] is None:
-            return "Not observed"
-        if row[key] is None:
-            return "Needs two runs"
-        return f"{row[key]:.1%}" if fraction else f"{row[key]:.3f}"
-
-    header = "".join(f"<th>{_HEADINGS[key]}</th>" for key in keys) + "".join(
-        f"<th>{name} ({units})</th>" for name in ["Mean", "Lower limit", "Upper limit"]
-    )
-    header += "<th>Observed runs</th>"
-    table_rows = ""
-    for row in table.to_dicts():
-        cells = [
-            *[html.escape(row[key]) for key in keys],
-            *[cell(row, key) for key in ["mean", "lower", "upper"]],
-            str(row["observed_runs"]),
-        ]
-        table_rows += "<tr>" + "".join(f"<td>{value}</td>" for value in cells) + "</tr>"
-    title = METRICS[metric].label
-    places = table.get_column(column).unique(maintain_order=True).to_list()
-    if len(places) == 1 and places[0] is not None:
-        title += f" at {places[0]}"
-    differences = ""
-    if changes is not None:
-        assert reference is not None  # Comparison.report passes both.
-        changes_html = changes.to_html(
-            full_html=False,
-            include_plotlyjs=False,
-            div_id="scenario-differences",
+    if comparing:
+        table = comparison_intervals(
+            experiments=experiments,
+            metric=metric,
+            station=None,
+            stock_point=None,
+            confidence=level,
         )
-        differences = (
-            f"<section><h2>Difference from {html.escape(reference)}</h2>\n"
-            "<p>Each difference is the scenario value minus its baseline value "
-            "within the same\nreplication. Negative values indicate a smaller "
-            "metric. The dashed line marks zero.</p>\n"
-            f"{changes_html}</section>"
+        changes = {
+            baseline: comparison_differences(
+                experiments=experiments,
+                reference=baseline,
+                metric=metric,
+                station=None,
+                stock_point=None,
+                confidence=level,
+            )
+            for baseline in experiments
+        }
+    else:
+        table = experiment_intervals(
+            experiment=first,
+            metric=metric,
+            station=None,
+            stock_point=None,
+            confidence=level,
         )
-    values = {
-        "HEADING": html.escape(heading),
-        "TEXT": html.escape(text),
-        "TITLE": html.escape(title),
-        "CONFIDENCE": f"{confidence * 100:g}%",
-        "MEANS": means_html,
-        "HEADER": header,
-        "TABLE_ROWS": table_rows,
-        "DIFFERENCES": differences,
+        changes = {}
+    views = []
+    for place in places:
+        here = pl.col(column).is_null() if place is None else pl.col(column) == place
+        chosen = table.filter(here)
+        runs = scenario_runs(
+            experiments=experiments,
+            found=found,
+            metric=metric,
+            place=place,
+        )
+        paired = {baseline: rows.filter(here) for baseline, rows in changes.items()}
+        views.append(
+            {
+                "title": METRICS[metric].label
+                + ("" if place is None else f" at {place}"),
+                "intervals": chosen.to_dicts(),
+                "means": page_figure(
+                    interval_figure(
+                        table=chosen,
+                        metric=metric,
+                        time_unit=settings.time_unit,
+                    )
+                ),
+                "runs": page_figure(
+                    replication_figure(
+                        values=runs if comparing else {None: runs[""]},
+                        scenarios=list(experiments) if comparing else [None],
+                        metric=metric,
+                        place=place,
+                        time_unit=settings.time_unit,
+                    )
+                ),
+                "changes": {
+                    baseline: None
+                    if rows.is_empty()
+                    else {
+                        "intervals": rows.to_dicts(),
+                        "figure": page_figure(
+                            interval_figure(
+                                table=rows,
+                                metric=metric,
+                                time_unit=settings.time_unit,
+                                differences=True,
+                            )
+                        ),
+                    }
+                    for baseline, rows in paired.items()
+                },
+            }
+        )
+    kind = METRICS[metric].kind
+    return {
+        "name": metric,
+        "label": METRICS[metric].label,
+        "scope": METRICS[metric].scope,
+        "location_column": column,
+        "fraction": kind == "fraction",
+        "units": "percent"
+        if kind == "fraction"
+        else metric_units(metric, settings.time_unit),
+        "meaning": METRICS[metric].meaning,
+        "window": window_text(
+            metric,
+            duration=settings.duration,
+            warmup=settings.warmup,
+            drain=settings.drain,
+            time_unit=settings.time_unit,
+        ),
+        "locations": places,
+        "views": views,
     }
-    template = Path(__file__).with_name("comparison.html").read_text(encoding="utf-8")
-    # One pass over the template, so a placeholder-like scenario name or
-    # Plotly text inside a value is never replaced.
-    return re.sub(
-        pattern=r"__([A-Z_]+)__",
-        repl=lambda match: values[match.group(1)],
-        string=template,
+
+
+def dashboard(
+    experiments: Mapping[str, Experiment],
+    *,
+    comparing: bool,
+    metric: str,
+    station: str | None,
+    stock_point: str | None,
+    confidence: float,
+    reference: str | None,
+) -> str:
+    """Build the offline page of every applicable metric and every kept run.
+
+    For each metric that applies to some scenario, in catalog order, the page
+    holds the views from metric_entry. It embeds Plotly once and each run's
+    records when every run kept them, in a script element per run that the
+    page parses only when the run opens. The caller has checked the request,
+    which names the metric, location, and baseline shown first. An
+    experiment's single entry has the key "".
+    """
+    level = confidence_level(confidence)
+    experiments = {
+        name: PageExperiment(experiment.runs)
+        for name, experiment in experiments.items()
+    }
+    # Figures styled here leave out the template, which the page holds once.
+    with building_page():
+        entries = [
+            entry
+            for name in METRICS
+            if (
+                entry := metric_entry(
+                    experiments=experiments,
+                    metric=name,
+                    comparing=comparing,
+                    level=level,
+                )
+            )
+            is not None
+        ]
+        records = all(
+            run._records_kept
+            for experiment in experiments.values()
+            for run in experiment.runs
+        )
+        runs = []
+        run_data = []
+        for scenario, (name, experiment) in enumerate(experiments.items()):
+            prefix = f"{name}, replication" if comparing else "Replication"
+            runs.append(
+                [
+                    {"label": f"{prefix} {index} (seed {run.settings.seed})"}
+                    for index, run in enumerate(experiment.runs, start=1)
+                ]
+            )
+            if records:
+                run_data += [
+                    f'<script id="run-{scenario}-{index}" type="application/json">'
+                    f"{page_json(run_payload(run))}</script>"
+                    for index, run in enumerate(experiment.runs)
+                ]
+        payload = {
+            "scenarios": list(experiments) if comparing else [None],
+            "replications": len(next(iter(experiments.values())).runs),
+            "confidence_text": f"{level * 100:g}%",
+            "groups": _GROUPS,
+            "metrics": entries,
+            "initial": {
+                "metric": metric,
+                "location": {"station": station, "stock_point": stock_point}.get(
+                    METRICS[metric].scope
+                ),
+                "baseline": reference,
+            },
+            "records": records,
+            "runs": runs,
+        }
+    return fill_template(
+        "dashboard.html",
+        {
+            **page_parts(),
+            "HEADING": "Scenario comparison" if comparing else "Replication intervals",
+            "DASHBOARD_JSON": page_json(payload),
+            "RUN_DATA": "\n".join(run_data),
+        },
     )
 
 

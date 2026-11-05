@@ -47,8 +47,8 @@ and the table below lists what each object holds.
 | Object | Returned by | Tables | Plots | Viewer and export |
 | --- | --- | --- | --- | --- |
 | `Results` | `model.run(...)` | `customers`, `visits`, `states`, `activities`, `failures`, `stations`, and `summary` (plus `inventory`, `shipments`, and `stock_points` for a supply chain), and `report()`, which lists every metric of the run in one long table | `plot_queue()`, `plot_wait()`, `plot_utilization()`, `plot_resources()`, `plot_customer(id)`, `plot_inventory()`, and `plot_orders()` | `viewer()` and `export(folder)` |
-| `Experiment` | `model.experiment(...)` | `summary`, `stations`, and `stock_points` with a `replication` column, `intervals(metric)`, and each run's `Results` in `runs` | `plot(metric)` | `viewer()` and `export(folder)` |
-| `Comparison` | `flowsim.compare(...)` | `summary`, `stations`, and `stock_points` with `scenario` and `replication` columns, `intervals(metric)`, `differences(metric)`, and each scenario's `Experiment` in `experiments` | `plot(metric)` and `plot(metric, differences=True)` | `viewer()` and `export(folder)` |
+| `Experiment` | `model.experiment(...)` | `summary`, `stations`, and `stock_points` with a `replication` column, `intervals(metric)`, and each run's `Results` in `runs` | `plot(metric)` | `viewer()`, a page of every metric whose runs open on the page, and `export(folder)` |
+| `Comparison` | `flowsim.compare(...)` | `summary`, `stations`, and `stock_points` with `scenario` and `replication` columns, `intervals(metric)`, `differences(metric)`, and each scenario's `Experiment` in `experiments` | `plot(metric)` and `plot(metric, differences=True)` | `viewer()`, a page of every metric and baseline whose runs open on the page, and `export(folder)` |
 | `Fits` | `flowsim.fit_all(data)` | `table` (one row per fitted family), `failed`, `best`, and `pick(name_or_rank)` | `plot()` | None |
 
 Two catalog functions describe every number in these tables. `flowsim.metrics()`
@@ -859,7 +859,8 @@ seeds and returns a `Comparison` (see Replications for `keep_records`).
 Experiments and comparisons share one reporting interface, whose signature is
 `intervals(metric="mean_total_wait", *, station=None, stock_point=None,
 confidence=0.95)`. `plot` takes the same arguments, and `viewer(path=None, ...)`
-and `export(folder, ...)` take them by keyword after the file or folder. The
+and `export(folder, ...)` take them by keyword after the file or folder (in
+`viewer`, they choose the metric and location the page shows first). The
 default metric is mean total waiting time in every method. A station metric
 without `station=` gives one row per station (per scenario in a comparison), a
 stock-point metric without `stock_point=` gives one row per stock point, and
@@ -1049,12 +1050,23 @@ new streams. An experiment's export writes `runs.csv` (the stacked summary
 tables), `stations.csv`, `stock_points.csv` for a supply chain, `intervals.csv`
 for the requested metric, and `metadata.json`.
 
+`experiment.viewer()` returns a page with a menu of every replication metric
+that applies to the model (from `flowsim.metrics()`), and for a station or
+stock-point metric a second menu chooses the location. For the chosen metric,
+the page shows the interval chart and table and a chart of each replication's
+value. Selecting a replication's point, or choosing the run from the menu below
+the chart, opens that run's single-run view on the same page, i.e., its queues,
+waits, utilization, server states (with the line boxes and stacked switch), and
+customer timeline, or the supply-chain view for a supply chain. The page embeds
+Plotly once and every run's records, so its size grows with the number of runs
+(see Scope and limits).
+
 `keep_records=False` drops each run's raw records (customers, visits, states,
 activities, failures, inventory, and shipments) once the run's measures are
 computed, which keeps memory low for long runs or many replications. The
-experiment's tables, intervals, plots, viewer, and export are unchanged, while a
-single run's plots, viewer, and export then raise an error that names the
-argument. `flowsim.compare` accepts the same argument.
+experiment's tables, intervals, plots, and export are unchanged, and its viewer
+shows the overview without opening single runs, while a single run's plots,
+viewer, and export then raise an error that names the argument. `flowsim.compare` accepts the same argument.
 
 ### Scenario comparisons
 
@@ -1143,8 +1155,13 @@ as the count of days that finish within 30 minutes of closing above. The interva
 are nominal for each reported metric or contrast, i.e., they are not
 simultaneous confidence bounds across every scenario and metric.
 
-The offline comparison viewer shows scenario means and paired differences for
-one metric (e.g., `viewer(metric="overtime")`). Comparison exports contain
+`comparison.viewer()` returns the same page as `experiment.viewer()` with a
+third menu that chooses the baseline. For the chosen metric, location, and
+baseline, it shows each scenario's interval, the paired differences from the
+baseline, and each scenario's value in each replication, and selecting a
+scenario's replication opens that run on the page. The arguments choose the
+first view (e.g., `viewer(metric="overtime", baseline="Two servers")`), and a
+scenario without the chosen station has no row for it. Comparison exports contain
 per-replication system and station metrics (and stock-point metrics for supply
 chains), scenario intervals, paired differences, and metadata. Raw customer
 records remain in `comparison.experiments[scenario].runs`, and each run has its
@@ -2011,9 +2028,10 @@ README on its own, in a fresh namespace, and checks that the generated metric
 and column tables match the catalog. After a catalog change, the failing test
 prints the new table to paste between the markers. The browser tests block
 external requests and exercise the saved viewers' controls and downloads and
-the builder page's controls (`tests/test_builder.py`). The viewer tests run in
-Chrome or Chromium, and the builder tests run in both Chrome or Chromium and
-Playwright's Firefox (installed with `pixi run playwright install firefox`).
+the builder page's controls (`tests/test_builder.py`). Most viewer tests run in
+Chrome or Chromium, and the line-box test, the comparison dashboard test, and
+the builder tests run in both Chrome or Chromium and Playwright's Firefox
+(installed with `pixi run playwright install firefox`).
 The tests find Chrome or Chromium on the executable search path, and a test
 whose browser is missing reports a skip. Setting `FLOWSIM_CHROME` to a browser
 executable selects it, and a path that does not exist fails the tests.
@@ -2039,6 +2057,14 @@ which suits classroom-scale examples. An experiment or comparison with
 records at a time (see Replications), but there is no streaming mode for one
 long run. A single run's viewer embeds its raw records, so it can become large
 for long runs (approximately 5 MB for one 480-minute day of the first model).
+An experiment or comparison page embeds every run's records when they were
+kept, so the service day comparison (3 scenarios of 20 days) saves a 22.6 MB
+page, i.e., 4.8 MB of Plotly, 17.1 MB of records (0.28 MB per run), and 0.7 MB
+of intervals, charts, and page code. With `keep_records=False`, the same page
+holds only the overview (5.5 MB). A Marimo notebook cannot display the page
+with records, since Marimo's frame encoding makes it a 62 MB output, above the
+30 MB `output_max_bytes` that `pyproject.toml` sets, so a notebook saves that
+page and opens it in a browser. The overview-only page displays in Marimo.
 Numeric outputs target classroom tables and plots, and LaTeX numeric exports
 are not included. FlowSim schedules events with its own scheduler
 (`flowsim/scheduler.py`) instead of a simulation library, and that scheduler was

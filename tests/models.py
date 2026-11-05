@@ -3,6 +3,8 @@
 Editing an example for teaching reasons must not change these models.
 """
 
+import json
+
 from flowsim import Model, moving_average, order_up_to
 
 
@@ -253,3 +255,32 @@ def job_shop(lathe_buffer: int | None = None) -> Model:
         types=["B"],
     )
     return model
+
+
+def two_station_queue() -> Model:
+    """The deterministic queue followed by a one-server Check station."""
+    model = Model(time_unit="minutes")
+    arrivals = model.source(
+        name="Customers",
+        interarrival=1,
+        first_arrival=0,
+        limit=3,
+    )
+    service = model.station(
+        name="Service",
+        capacity=1,
+        service_time=2,
+    )
+    check = model.station(
+        name="Check",
+        capacity=1,
+        service_time=1,
+    )
+    model.route([arrivals, service, check, model.exit])
+    return model
+
+
+def embedded_json(page: str, element: str) -> object:
+    """Return the JSON in a page's script element with the given id."""
+    start = page.index(f'<script id="{element}" type="application/json">')
+    return json.loads(page[page.index(">", start) + 1 : page.index("</script>", start)])

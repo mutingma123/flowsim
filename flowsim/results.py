@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import difflib
+import functools
 import html
 import json
 import math
@@ -2724,22 +2725,15 @@ class Results:
         >>> results.viewer("output/run.html")
         """
         self._require_records("viewer()")
-        from flowsim.plots import supply_viewer_html, viewer_html
+        from flowsim.plots import run_page_html
 
-        if self._supply is None:
-            page = Viewer(
-                document=viewer_html(self),
-                kind="results page",
-                name="results",
-                height=900,
-            )
-        else:
-            page = Viewer(
-                document=supply_viewer_html(self),
-                kind="supply-chain results page",
-                name="supply-chain",
-                height=900,
-            )
+        supply = self._supply is not None
+        page = Viewer(
+            document=run_page_html(self),
+            kind="supply-chain results page" if supply else "results page",
+            name="supply-chain" if supply else "results",
+            height=900,
+        )
         if path is not None:
             page.save(path)
         return page
@@ -3073,20 +3067,29 @@ class Experiment:
         stock_point: str | None = None,
         confidence: float = 0.95,
     ) -> Viewer:
-        """Build an offline page of one metric's intervals, saved to path if given.
+        """Build the offline experiment dashboard, saved to path if given.
+
+        A menu chooses among every replication metric that applies to the
+        model, and for a station or stock-point metric another menu chooses
+        the location. The page shows the metric's interval and table and each
+        replication's value. When the runs kept their records, selecting a
+        replication opens that run's single-run view on the same page, and with
+        keep_records=False the page shows the overview only. The arguments set
+        the metric and location shown first.
 
         Parameters
         ----------
         path : str or pathlib.Path, optional
             File to save the page to. Without it, nothing is written.
         metric : str, default 'mean_total_wait'
-            A replication metric name from flowsim.metrics().
+            The replication metric shown first, a name from flowsim.metrics().
         station : str, optional
-            Station to report, for a station metric.
+            Station shown first, for a station metric. Without it, the first.
         stock_point : str, optional
-            Stock point to report, for a stock-point metric.
+            Stock point shown first, for a stock-point metric. Without it, the
+            first.
         confidence : float, default 0.95
-            Confidence level of the interval, strictly between 0 and 1.
+            Confidence level of every interval, strictly between 0 and 1.
 
         Returns
         -------
@@ -3095,41 +3098,30 @@ class Experiment:
 
         Example
         -------
-        >>> experiment.viewer("output/experiment.html")
+        >>> experiment.viewer("output/experiment.html", metric="utilization")
         """
-        from flowsim.reporting import page, window_text
+        from flowsim.reporting import dashboard
 
-        settings = self.settings
-        document = page(
-            heading="Replication intervals",
-            text=window_text(
-                metric,
-                duration=settings.duration,
-                warmup=settings.warmup,
-                drain=settings.drain,
-                time_unit=settings.time_unit,
-            ),
+        # Check the request as intervals() does, before building the page.
+        self.intervals(
             metric=metric,
-            table=self.intervals(
-                metric=metric,
-                station=station,
-                stock_point=stock_point,
-                confidence=confidence,
-            ),
-            time_unit=settings.time_unit,
+            station=station,
+            stock_point=stock_point,
             confidence=confidence,
-            means=self.plot(
-                metric=metric,
-                station=station,
-                stock_point=stock_point,
-                confidence=confidence,
-            ),
         )
         viewer = Viewer(
-            document=document,
-            kind="replication page",
+            document=dashboard(
+                experiments={"": self},
+                comparing=False,
+                metric=metric,
+                station=station,
+                stock_point=stock_point,
+                confidence=confidence,
+                reference=None,
+            ),
+            kind="experiment dashboard",
             name="experiment",
-            height=800,
+            height=1100,
         )
         if path is not None:
             viewer.save(path)
@@ -3195,3 +3187,27 @@ class Experiment:
                 confidence=confidence,
             ),
         )
+
+
+class PageExperiment(Experiment):
+    """An experiment whose pooled tables are built once, for one page.
+
+    Experiment rebuilds each pooled table on every access, so estimates always
+    read the runs' current values. A dashboard reads them hundreds of times
+    while it is built, and the page is a snapshot of the runs anyway.
+    """
+
+    @functools.cached_property
+    def stations(self) -> pl.DataFrame:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Return every run's stations table, stacked, built once."""
+        return super().stations
+
+    @functools.cached_property
+    def stock_points(self) -> pl.DataFrame:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Return every run's stock_points table, stacked, built once."""
+        return super().stock_points
+
+    @functools.cached_property
+    def summary(self) -> pl.DataFrame:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Return every run's summary table, stacked, built once."""
+        return super().summary

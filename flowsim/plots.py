@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
+import contextvars
+import functools
 import html
 import json
 import math
-from collections.abc import Callable
+import re
+from collections.abc import Callable, Iterator
 from numbers import Real
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -46,9 +50,26 @@ def label(text: str) -> str:
     return html.escape(text, quote=False)
 
 
+# True while a page is built. A page holds the shared template once and adds it
+# back in the browser, and setting it costs about 7 ms per figure, which a
+# dashboard's hundreds of figures turn into many seconds.
+_BUILDING_PAGE = contextvars.ContextVar("building_page", default=False)
+
+
+@contextlib.contextmanager
+def building_page() -> Iterator[None]:
+    """Leave the shared template out of figures styled inside the block."""
+    token = _BUILDING_PAGE.set(True)
+    try:
+        yield
+    finally:
+        _BUILDING_PAGE.reset(token)
+
+
 def style(figure: go.Figure, x_label: str, y_label: str) -> go.Figure:
+    if not _BUILDING_PAGE.get():
+        figure.update_layout(template="plotly_white")
     figure.update_layout(
-        template="plotly_white",
         width=800,
         height=500,
         font={"family": "Georgia, serif", "size": 14},
@@ -1138,11 +1159,12 @@ def figure_data(figure: go.Figure) -> dict:
     return json.loads(text)
 
 
-def viewer_html(result: Results) -> str:
+def service_payload(result: Results) -> dict:
+    """Return the data the service-network run view draws."""
     figures = {
-        "queues": figure_data(plot_queue(result)),
-        "waits": figure_data(plot_wait(result)),
-        "utilization": figure_data(plot_utilization(result)),
+        "queues": page_figure(plot_queue(result)),
+        "waits": page_figure(plot_wait(result)),
+        "utilization": page_figure(plot_utilization(result)),
     }
     if any(
         definition["staffing"] is not None
@@ -1150,9 +1172,9 @@ def viewer_html(result: Results) -> str:
         or definition["failures_enabled"]
         for definition in result._definitions.values()
     ):
-        figures["resources"] = figure_data(plot_resources(result))
+        figures["resources"] = page_figure(plot_resources(result))
         # The page's switch swaps this figure into the resources chart.
-        stacked = figure_data(
+        stacked = page_figure(
             plot_resources(
                 result,
                 stacked=True,
@@ -1160,7 +1182,8 @@ def viewer_html(result: Results) -> str:
         )
     else:
         stacked = None
-    payload = {
+    return {
+        "kind": "service",
         "figures": figures,
         "stacked_resources": stacked,
         "customers": result.customers.to_dicts(),
@@ -1187,12 +1210,6 @@ def viewer_html(result: Results) -> str:
         "time_unit": result.settings.time_unit,
         "seed": result.settings.seed,
     }
-    # Escape '<' so model labels cannot terminate the embedded JSON script.
-    data = json.dumps(payload, allow_nan=False).replace("<", "\\u003c")
-    template = Path(__file__).with_name("viewer.html").read_text(encoding="utf-8")
-    return template.replace("__PLOTLY_JS__", get_plotlyjs()).replace(
-        "__RESULT_JSON__", data
-    )
 
 
 # Stock-point order traces cycle through these colors, after consumer demand.
@@ -1301,10 +1318,11 @@ def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure
     return figure
 
 
-def supply_viewer_html(result: Results) -> str:
+def supply_payload(result: Results) -> dict:
+    """Return the data the supply-chain run view draws."""
     figures = {
-        "orders": figure_data(plot_orders(result)),
-        "inventory": figure_data(plot_inventory(result)),
+        "orders": page_figure(plot_orders(result)),
+        "inventory": page_figure(plot_inventory(result)),
     }
     # A top stage that produces adds its stations, whose customers are jobs.
     if result.settings.capacities:
@@ -1314,12 +1332,13 @@ def supply_viewer_html(result: Results) -> str:
             hovertemplate=f"%{{x:.2f}} {label(result.settings.time_unit)}"
             "<br>%{y} jobs<extra>%{fullData.name}</extra>"
         )
-        figures["queues"] = figure_data(queues)
-        figures["utilization"] = figure_data(plot_utilization(result))
+        figures["queues"] = page_figure(queues)
+        figures["utilization"] = page_figure(plot_utilization(result))
     # plot_orders above raises for a run without a supply chain.
     supply = result._supply
     assert supply is not None
-    payload = {
+    return {
+        "kind": "supply",
         "figures": figures,
         "chain": supply["chain"],
         "period": supply["period"],
@@ -1343,9 +1362,84 @@ def supply_viewer_html(result: Results) -> str:
         "time_unit": result.settings.time_unit,
         "seed": result.settings.seed,
     }
-    # Escape '<' so model labels cannot terminate the embedded JSON script.
-    data = json.dumps(payload, allow_nan=False).replace("<", "\\u003c")
-    template = Path(__file__).with_name("supply.html").read_text(encoding="utf-8")
-    return template.replace("__PLOTLY_JS__", get_plotlyjs()).replace(
-        "__RESULT_JSON__", data
+
+
+def run_payload(result: Results) -> dict:
+    """Return one run's data for a run view, the service or supply-chain one."""
+    return (
+        supply_payload(result)
+        if result._supply is not None
+        else service_payload(result)
+    )
+
+
+@functools.cache
+def page_template() -> dict:
+    """Return the Plotly template every FlowSim figure uses, as page JSON."""
+    return figure_data(go.Figure(layout={"template": "plotly_white"}))["layout"][
+        "template"
+    ]
+
+
+def page_figure(figure: go.Figure) -> dict:
+    """Return a figure's JSON without its template.
+
+    Every page figure is styled with the shared template, which the page holds
+    once and each figure adds back when drawn, so this saves about 8 kB per
+    figure. Plotly writes its default template for a figure styled while a
+    page is built, and that copy is dropped too.
+    """
+    data = figure_data(figure)
+    data["layout"].pop("template", None)
+    return data
+
+
+def page_json(payload: object) -> str:
+    """Return JSON that is safe inside a page's script element.
+
+    Escaping '<' keeps model labels from ending the script element.
+    """
+    return json.dumps(payload, allow_nan=False).replace("<", "\\u003c")
+
+
+def fill_template(name: str, values: dict[str, str]) -> str:
+    """Fill a page template's __NAME__ placeholders in one pass.
+
+    One pass means a placeholder-like name inside a value (e.g., in a
+    scenario name or in Plotly's code) is never replaced.
+    """
+    template = Path(__file__).with_name(name).read_text(encoding="utf-8")
+    return re.sub(
+        pattern=r"__([A-Z_]+)__",
+        repl=lambda match: values[match.group(1)],
+        string=template,
+    )
+
+
+def page_parts() -> dict[str, str]:
+    """Return the style, Plotly, template, and run views that every page holds."""
+    folder = Path(__file__).parent
+    return {
+        "STYLE": (folder / "page.css").read_text(encoding="utf-8"),
+        "PLOTLY_JS": get_plotlyjs(),
+        "TEMPLATE_JSON": page_json(page_template()),
+        "SERVICE_RUN": (folder / "service_run.html").read_text(encoding="utf-8"),
+        "SUPPLY_RUN": (folder / "supply_run.html").read_text(encoding="utf-8"),
+    }
+
+
+def run_page_html(result: Results) -> str:
+    """Return the offline page of one run."""
+    with building_page():
+        payload = run_payload(result)
+    heading = (
+        "FlowSim supply chain" if payload["kind"] == "supply" else "FlowSim results"
+    )
+    return fill_template(
+        "run.html",
+        {
+            **page_parts(),
+            "HEADING": heading,
+            "RESULT_JSON": page_json(payload),
+        },
     )

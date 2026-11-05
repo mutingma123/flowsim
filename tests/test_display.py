@@ -24,8 +24,9 @@ def no_viewer(monkeypatch):
     def refuse(*args, **kwargs):
         raise AssertionError("A display built a viewer.")
 
-    monkeypatch.setattr(flowsim.plots, "viewer_html", refuse)
-    monkeypatch.setattr(flowsim.plots, "supply_viewer_html", refuse)
+    # Every run page and dashboard reads run_payload or page_parts.
+    monkeypatch.setattr(flowsim.plots, "run_payload", refuse)
+    monkeypatch.setattr(flowsim.plots, "page_parts", refuse)
 
 
 def objects():

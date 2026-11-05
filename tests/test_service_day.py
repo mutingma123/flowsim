@@ -10,7 +10,12 @@ import pytest
 from polars.testing import assert_frame_equal
 
 from flowsim import Comparison, Experiment, Model, compare
-from tests.models import beer_chain, deterministic_queue, service_network
+from tests.models import (
+    beer_chain,
+    deterministic_queue,
+    embedded_json,
+    service_network,
+)
 
 
 def test_drain_finishes_the_arrival_cohort_and_preserves_opening_metrics():
@@ -373,22 +378,37 @@ def test_comparison_page_fills_its_template_once():
         drain=True,
     )
     page = result.viewer(confidence=0.9).html
-    assert "Intervals show 90% Student t uncertainty" in page
-    assert "<th>Mean (minutes)</th>" in page
-    assert (
-        "<tbody><tr><td>One</td><td>1.000</td><td>1.000</td><td>1.000</td><td>3</td></tr>"
-        "<tr><td>__UNITS__ &amp; co</td><td>0.000</td><td>0.000</td><td>0.000</td>"
-        "<td>3</td></tr></tbody>"
-    ) in page
-    assert "<h2>Difference from One</h2>" in page
-    for placeholder in ["__TEXT__", "__TITLE__", "__MEANS__", "__CHANGES__"]:
-        assert placeholder not in page
-    # The page template ships with the package, as viewer.html does.
+    data = embedded_json(page, "dashboard-data")
+    assert data["confidence_text"] == "90%"
+    # A placeholder-like scenario name reaches the page unchanged.
+    assert data["scenarios"] == ["One", "__UNITS__ & co"]
+    entry = next(item for item in data["metrics"] if item["name"] == "mean_total_wait")
+    assert entry["units"] == "minutes"
+    (view,) = entry["views"]
+    assert [
+        (row["scenario"], row["mean"], row["lower"], row["upper"], row["observed_runs"])
+        for row in view["intervals"]
+    ] == [("One", 1.0, 1.0, 1.0, 3), ("__UNITS__ & co", 0.0, 0.0, 0.0, 3)]
+    assert data["initial"]["baseline"] == "One"
+    for placeholder in [
+        "STYLE",
+        "PLOTLY_JS",
+        "TEMPLATE_JSON",
+        "SERVICE_RUN",
+        "SUPPLY_RUN",
+        "HEADING",
+        "DASHBOARD_JSON",
+        "RUN_DATA",
+    ]:
+        assert f"__{placeholder}__" not in page
+    # The page templates ship with the package.
     pyproject = tomllib.loads(
         (Path(__file__).parents[1] / "pyproject.toml").read_text()
     )
-    assert (
-        "comparison.html" in pyproject["tool"]["setuptools"]["package-data"]["flowsim"]
+    shipped = pyproject["tool"]["setuptools"]["package-data"]["flowsim"]
+    package = Path(__file__).parents[1] / "flowsim"
+    assert sorted([*(path.name for path in package.glob("*.html")), "page.css"]) == (
+        sorted(name for name in shipped if name.endswith((".html", ".css")))
     )
 
 
@@ -639,7 +659,8 @@ def test_comparison_outputs_accept_a_baseline_and_read_current_tables(tmp_path):
     differences = pl.read_csv(tmp_path / "differences.csv")
     assert differences.get_column("scenario").to_list() == ["One"]
     assert differences.get_column("mean").to_list() == [1]
-    assert "Difference from Two" in result.viewer(baseline="Two").html
+    page = result.viewer(baseline="Two").html
+    assert embedded_json(page, "dashboard-data")["initial"]["baseline"] == "Two"
     # Tables built for export follow edits to the underlying runs.
     for run in result.experiments["One"].runs:
         run.summary = run.summary.with_columns(pl.lit(99.0).alias("mean_total_wait"))
@@ -664,9 +685,13 @@ def test_comparison_viewer_and_plot_name_the_chosen_station():
             metric="mean_wait",
             station=chosen,
         ).html
-        title = f"Mean station waiting time at {chosen}"
-        assert title in document
-        assert f"Mean station waiting time at {other}" not in document
+        data = embedded_json(document, "dashboard-data")
+        assert data["initial"]["location"] == chosen
+        entry = next(item for item in data["metrics"] if item["name"] == "mean_wait")
+        assert [view["title"] for view in entry["views"]] == [
+            "Mean station waiting time at Check-in",
+            "Mean station waiting time at Service",
+        ]
         plot = result.plot(
             metric="mean_wait",
             station=chosen,

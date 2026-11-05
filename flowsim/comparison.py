@@ -13,11 +13,10 @@ from flowsim.model import Model
 from flowsim.reporting import (
     comparison_differences,
     comparison_intervals,
+    dashboard,
     export_tables,
     interval_figure,
-    page,
     request_metadata,
-    window_text,
 )
 from flowsim.results import (
     Experiment,
@@ -326,24 +325,32 @@ class Comparison:
         confidence: float = 0.95,
         baseline: str | None = None,
     ) -> Viewer:
-        """Build an offline page with intervals and paired differences.
+        """Build the offline comparison dashboard, saved to path if given.
 
-        The page is saved when a path is given.
+        A menu chooses among every replication metric that applies to some
+        scenario, another chooses the location for a station or stock-point
+        metric, and a third chooses the baseline. The page shows each
+        scenario's interval, the paired differences from the baseline, and each
+        replication's value. When the runs kept their records, selecting a
+        scenario's replication opens that run's single-run view on the same
+        page, and with keep_records=False the page shows the overview only.
+        The arguments set the metric, location, and baseline shown first.
 
         Parameters
         ----------
         path : str or pathlib.Path, optional
             File to save the page to. Without it, nothing is written.
         metric : str, default 'mean_total_wait'
-            A replication metric name from flowsim.metrics().
+            The replication metric shown first, a name from flowsim.metrics().
         station : str, optional
-            Station to report, for a station metric.
+            Station shown first, for a station metric. Without it, the first.
         stock_point : str, optional
-            Stock point to report, for a stock-point metric.
+            Stock point shown first, for a stock-point metric. Without it, the
+            first.
         confidence : float, default 0.95
-            Confidence level of the interval, strictly between 0 and 1.
+            Confidence level of every interval, strictly between 0 and 1.
         baseline : str, optional
-            Reference scenario for differences. Without it, the first scenario.
+            Reference scenario shown first. Without it, the first scenario.
 
         Returns
         -------
@@ -352,40 +359,29 @@ class Comparison:
 
         Example
         -------
-        >>> comparison.viewer("output/comparison.html")
+        >>> comparison.viewer("output/comparison.html", metric="overtime")
         """
         reference = self._reference(baseline)
-        request = {
-            "metric": metric,
-            "station": station,
-            "stock_point": stock_point,
-            "confidence": confidence,
-        }
-        settings = self.settings
-        document = page(
-            heading="Scenario comparison",
-            text=window_text(
-                metric,
-                duration=settings.duration,
-                warmup=settings.warmup,
-                drain=settings.drain,
-                time_unit=settings.time_unit,
-            ),
+        # Check the request as intervals() and differences() do, before
+        # building the page.
+        self.differences(
             metric=metric,
-            table=self.intervals(**request),
-            time_unit=settings.time_unit,
+            baseline=reference,
+            station=station,
+            stock_point=stock_point,
             confidence=confidence,
-            means=self.plot(**request),
-            changes=self.plot(
-                **request,
-                differences=True,
-                baseline=reference,
-            ),
-            reference=reference,
         )
         viewer = Viewer(
-            document=document,
-            kind="comparison page",
+            document=dashboard(
+                experiments=self.experiments,
+                comparing=True,
+                metric=metric,
+                station=station,
+                stock_point=stock_point,
+                confidence=confidence,
+                reference=reference,
+            ),
+            kind="comparison dashboard",
             name="comparison",
             height=1100,
         )

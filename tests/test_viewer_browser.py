@@ -10,6 +10,7 @@ from tests.models import (
     deterministic_queue,
     job_shop,
     service_network,
+    two_station_queue,
 )
 
 
@@ -169,11 +170,12 @@ def test_scenario_report_renders_intervals_offline(tmp_path, offline_page):
     viewer = tmp_path / "comparison.html"
     comparison.viewer(viewer)
     page = offline_page(viewer)
-    page.wait_for_function(
-        "document.getElementById('scenario-differences').data !== undefined"
-    )
-    assert page.locator(".js-plotly-plot").count() == 2
-    assert page.locator("table tbody tr").count() == 2
+    page.wait_for_function("window.flowsimReady !== undefined")
+    page.evaluate("window.flowsimReady")
+    # Intervals, paired differences, and each replication's value.
+    assert page.locator(".js-plotly-plot").count() == 3
+    assert page.locator("#interval-table tbody tr").count() == 2
+    assert page.locator("#difference-table tbody tr").count() == 1
     assert page.evaluate("document.getElementById('scenario-means').data[0].x") == [
         1,
         0,
@@ -196,10 +198,23 @@ def test_experiment_report_renders_one_metric_offline(tmp_path, offline_page):
     )
     page = offline_page(viewer)
     page.wait_for_function("document.querySelectorAll('.axis-note').length === 1")
-    assert page.locator(".js-plotly-plot").count() == 1
-    assert page.locator("table tbody tr").count() == 1
+    # Intervals and each replication's value, with no differences.
+    assert page.locator(".js-plotly-plot").count() == 2
+    assert page.locator("#interval-table tbody tr").count() == 1
+    assert page.locator("#interval-table tr").all_inner_texts() == [
+        "Station\tMean (minutes)\tLower limit (minutes)\tUpper limit (minutes)\tObserved runs",
+        "Service\t1.000\t1.000\t1.000\t3",
+    ]
+    assert page.locator("#interval-title").inner_text() == (
+        "Mean station waiting time at Service"
+    )
+    assert page.locator("#difference-section").is_hidden()
     assert page.evaluate("document.getElementById('scenario-means').data[0].x") == [1]
-    assert page.evaluate("document.getElementById('scenario-differences')") is None
+    assert page.evaluate("document.getElementById('replication-values').data[0].y") == [
+        1,
+        1,
+        1,
+    ]
 
 
 def test_scenario_report_moves_axis_titles_below_narrow_charts(tmp_path, offline_page):
@@ -469,3 +484,198 @@ def test_supply_viewer_shows_production_stations(tmp_path, offline_page):
     )
     assert jobs.columns == result.customers.columns
     assert jobs.get_column("quantity").to_list() == [16, 16, 16, 2] * 4
+
+
+def click_point(page, index):
+    """Click a replication point where it is drawn, through Plotly's drag layer."""
+    point = page.locator("#replication-values .point").nth(index)
+    point.scroll_into_view_if_needed()
+    box = point.bounding_box()
+    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+
+
+def ready(page, name="flowsimReady"):
+    page.wait_for_function(f"window.{name} !== undefined")
+    page.evaluate(f"window.{name}")
+
+
+def test_comparison_dashboard_switches_metrics_and_opens_runs(tmp_path, engine_page):
+    comparison = compare(
+        scenarios={
+            "Base": combined_line(),
+            "Pause": combined_line(shift_end="pause"),
+        },
+        duration=120,
+        replications=3,
+    )
+    viewer = tmp_path / "comparison.html"
+    comparison.viewer(
+        viewer,
+        metric="utilization",
+        station="Finishing",
+        baseline="Pause",
+    )
+    page = engine_page(viewer)
+    ready(page)
+    assert page.input_value("#metric-choice") == "utilization"
+    assert page.locator("#location-choice option:checked").inner_text() == "Finishing"
+    assert page.input_value("#baseline-choice") == "Pause"
+    assert page.locator("#interval-title").inner_text() == (
+        "Occupied / installed capacity at Finishing"
+    )
+    assert page.locator("#difference-title").inner_text() == "Difference from Pause"
+    finishing = comparison.intervals(
+        "utilization",
+        station="Finishing",
+    )
+    assert page.evaluate(
+        "document.getElementById('scenario-means').data[0].x"
+    ) == pytest.approx(finishing.get_column("mean").to_list())
+    # A system metric hides the location menu, and the baseline menu redraws
+    # the paired differences.
+    page.select_option("#metric-choice", "mean_total_wait")
+    page.wait_for_function(
+        "document.getElementById('interval-title').textContent === "
+        "'Mean total waiting time'"
+    )
+    assert page.locator("#location-choice").is_hidden()
+    page.select_option("#baseline-choice", "Base")
+    page.wait_for_function(
+        "document.getElementById('difference-title').textContent === "
+        "'Difference from Base'"
+    )
+    paired = comparison.differences("mean_total_wait", baseline="Base")
+    assert page.evaluate(
+        "document.getElementById('scenario-differences').data[0].x"
+    ) == pytest.approx(paired.get_column("mean").to_list())
+    runs = comparison.experiments["Pause"].summary.sort("replication")
+    assert page.evaluate(
+        "document.getElementById('replication-values').data[1].y"
+    ) == pytest.approx(runs.get_column("mean_total_wait").to_list())
+    # Opening Pause's second run shows its single-run view, with the
+    # server-state boxes and stacked switch, on the same page.
+    assert page.locator("#run-panel").is_hidden()
+    page.select_option(
+        "#run-choice", label=page.locator("#run-choice option").nth(4).inner_text()
+    )
+    page.click("#open-run")
+    ready(page, "flowsimRunReady")
+    run = comparison.experiments["Pause"].runs[1]
+    assert page.locator("#run-heading").inner_text() == (
+        f"Pause, replication 2 (seed {run.settings.seed})"
+    )
+    arrivals = run.summary.row(0, named=True)["arrivals"]
+    assert page.locator("#cards .card").first.inner_text().endswith(str(arrivals))
+    assert page.locator("#resources-series label").count() == 6
+    page.check("#resources-stacked")
+    page.wait_for_function(
+        "document.getElementById('resources').data.some(trace => trace.name === 'Idle')"
+    )
+    # Opening another run replaces the view, and closing it empties the panel.
+    page.select_option(
+        "#run-choice", label=page.locator("#run-choice option").first.inner_text()
+    )
+    page.click("#open-run")
+    ready(page, "flowsimRunReady")
+    assert page.locator("#run-heading").inner_text().startswith("Base, replication 1 ")
+    assert page.locator("#queues").count() == 1
+    assert not page.is_checked("#resources-stacked")
+    page.click("#close-run")
+    assert page.locator("#run-panel").is_hidden()
+    assert page.locator("#run-root > *").count() == 0
+
+
+def test_a_replication_point_opens_its_run(tmp_path, offline_page):
+    experiment = deterministic_queue().experiment(
+        duration=7,
+        replications=3,
+    )
+    viewer = tmp_path / "experiment.html"
+    experiment.viewer(viewer)
+    page = offline_page(viewer)
+    ready(page)
+    click_point(page, 2)
+    ready(page, "flowsimRunReady")
+    seed = experiment.runs[2].settings.seed
+    assert page.locator("#run-heading").inner_text() == f"Replication 3 (seed {seed})"
+    assert page.input_value("#run-choice") == "2"
+
+
+def test_dashboard_without_records_shows_the_overview_only(tmp_path, offline_page):
+    experiment = deterministic_queue().experiment(
+        duration=7,
+        replications=3,
+        keep_records=False,
+    )
+    viewer = tmp_path / "experiment.html"
+    experiment.viewer(viewer)
+    page = offline_page(viewer)
+    ready(page)
+    assert "keep_records=True" in page.locator("#replication-reading").inner_text()
+    assert page.locator("#run-toolbar").is_hidden()
+    click_point(page, 0)
+    assert page.locator("#run-panel").is_hidden()
+
+
+def test_supply_chain_dashboard_opens_the_supply_chain_run_view(tmp_path, offline_page):
+    experiment = beer_chain().experiment(
+        duration=20,
+        replications=2,
+    )
+    viewer = tmp_path / "chain.html"
+    experiment.viewer(viewer, metric="fill_rate", stock_point="Factory")
+    page = offline_page(viewer)
+    ready(page)
+    assert page.locator("#location-label").inner_text() == "Stock point"
+    assert page.locator("#location-choice option:checked").inner_text() == "Factory"
+    page.click("#open-run")
+    ready(page, "flowsimRunReady")
+    assert (
+        page.locator(
+            "#run-root #orders .js-plotly-plot, #run-root #orders.js-plotly-plot"
+        ).count()
+        == 1
+    )
+    assert page.locator("#stock-choice option").all_text_contents() == [
+        "Retailer",
+        "Wholesaler",
+        "Distributor",
+        "Factory",
+    ]
+
+
+def test_a_point_opens_its_own_scenario_where_another_lacks_the_station(
+    tmp_path, offline_page
+):
+    comparison = compare(
+        scenarios={
+            "Without": deterministic_queue(),
+            "With": two_station_queue(),
+        },
+        duration=7,
+        replications=2,
+    )
+    viewer = tmp_path / "comparison.html"
+    # A named station must exist in every scenario, so the page's menu
+    # chooses Check.
+    comparison.viewer(viewer, metric="mean_wait")
+    page = offline_page(viewer)
+    ready(page)
+    page.select_option("#location-choice", label="Check")
+    page.wait_for_function(
+        "document.getElementById('interval-title').textContent.endsWith('Check')"
+    )
+    assert "No other scenario shares this location" in (
+        page.locator("#difference-missing").inner_text()
+    )
+    click_point(page, 1)
+    ready(page, "flowsimRunReady")
+    seed = comparison.experiments["With"].runs[1].settings.seed
+    assert page.locator("#run-heading").inner_text() == (
+        f"With, replication 2 (seed {seed})"
+    )
+    assert page.locator("#station-choice option").all_text_contents() == [
+        "Service",
+        "Check",
+    ]
