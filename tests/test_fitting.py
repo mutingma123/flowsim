@@ -432,3 +432,28 @@ def test_count_plot_grid_stays_bounded_for_huge_counts():
         discrete=True,
     ).plot()
     assert max(len(trace.x) for trace in figure.data) <= 1000
+
+
+def test_shifted_fits_pinned_at_the_smallest_observation_fail():
+    # A free location makes the lognormal and Weibull likelihoods grow without
+    # bound as the location reaches 1, so those fits are listed as failed. The
+    # shifted exponential's maximum is location 1 and scale mean - 1 = 1.5, so
+    # its log-likelihood is -4 ln 1.5 - 6 / 1.5 and its AIC is 4 minus twice
+    # that, 15.2437, below normal's 16.24 and gamma's 18.24.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        fits = fit_all([1, 2, 3, 4], shifted=True)
+    failed = dict(fits.failed.iter_rows())
+    assert set(failed) == {"lognormal", "weibull"}
+    assert all("smallest observation" in reason for reason in failed.values())
+    assert fits.best.family == "exponential"
+    assert fits.best.aic == pytest.approx(4 + 2 * (4 * math.log(1.5) + 4))
+    assert fits.best.mean == pytest.approx(2.5)
+
+
+def test_constant_durations_give_a_fits_table():
+    # Equal values push the Weibull shape to about 3e9, whose sd once failed.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        table = fit_all([1.0, 1.0, 1.0]).table
+    assert table.get_column("sd").is_finite().all()

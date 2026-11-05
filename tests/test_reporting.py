@@ -224,6 +224,37 @@ def test_experiment_export_writes_pooled_tables_and_metadata(tmp_path):
     ]
 
 
+def test_exports_accept_a_numpy_confidence_level(tmp_path):
+    # np.float32 is a real number that intervals accept, but json cannot write
+    # it, so the metadata stores the validated Python float.
+    level = np.float32(0.9)
+    experiment = deterministic_queue().experiment(
+        duration=7,
+        replications=3,
+        seed=5,
+    )
+    comparison = compare(
+        scenarios={
+            "One server": deterministic_queue(),
+            "Two servers": deterministic_queue(capacity=2),
+        },
+        duration=7,
+        replications=3,
+        seed=5,
+    )
+    for name, study in [("experiment", experiment), ("comparison", comparison)]:
+        folder = tmp_path / name
+        study.export(
+            folder,
+            metric="mean_wait",
+            confidence=level,
+        )
+        metadata = json.loads((folder / "metadata.json").read_text())
+        assert metadata["confidence"] == float(level)
+        intervals = pl.read_csv(folder / "intervals.csv")
+        assert intervals.get_column("confidence").unique().to_list() == [float(level)]
+
+
 def test_experiment_export_writes_stock_points_for_a_supply_chain(tmp_path):
     experiment = beer_chain().experiment(
         duration=12,
@@ -873,6 +904,43 @@ def test_chain_diagram_keeps_branch_arrows_clear_of_other_stations():
             share = min(max(share, 0), 1)
             closest = (x0 + share * (x1 - x0), y0 + share * (y1 - y0))
             assert math.dist((x, y), closest) > 0.3
+
+
+def test_chain_diagram_labels_production_branch_shares():
+    model, consumers, factory = producing_factory()
+    fast, slow = (
+        model.station(
+            name=name,
+            capacity=1,
+            service_time=0.01,
+        )
+        for name in ("Fast", "Slow")
+    )
+    model.branch(factory, {fast: 0.1, slow: 0.9})
+    model.route([fast, factory])
+    model.route([slow, factory])
+    model.supply(
+        [consumers, factory],
+        period=1,
+    )
+    figure = model.diagram()
+    labels = {
+        item.text: (item.x, item.y)
+        for item in figure.layout.annotations
+        if not item.showarrow and item.text.endswith("%")
+    }
+    # Fast sits at (1, -1) and Slow at (1, -2) below the factory at (0, 0), so
+    # each share sits between the factory and its station.
+    assert set(labels) == {"10%", "90%"}
+    assert 0 < labels["10%"][0] < 1 and -1 < labels["10%"][1] < 0
+    assert 0 < labels["90%"][0] < 1 and -2 < labels["90%"][1] < 0
+    # Routes taken by every job carry no share.
+    plain = one_stage_chain(produce=True).diagram()
+    assert not [
+        item.text
+        for item in plain.layout.annotations
+        if not item.showarrow and item.text.endswith("%")
+    ]
 
 
 def test_chain_diagram_draws_an_unfinished_producer_and_numpy_lead_times():

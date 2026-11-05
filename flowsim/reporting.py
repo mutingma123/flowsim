@@ -579,9 +579,11 @@ def export_tables(
         "differences.csv": differences,
     }
     written = {name for name, table in tables.items() if table is not None}
+    # Metadata goes first, so a request that cannot be written replaces no
+    # tables from an earlier export.
+    _write_metadata(destination / "metadata.json", metadata)
     for name in written:
         tables[name].write_csv(destination / name)
-    _write_metadata(destination / "metadata.json", metadata)
     remove_stale_exports(destination, written | {"metadata.json"})
     return destination
 
@@ -599,7 +601,8 @@ def request_metadata(
         "metric": metric,
         "station": station,
         "stock_point": stock_point,
-        "confidence": confidence,
+        # The validated level is a Python float, as JSON needs, for any real input.
+        "confidence": confidence_level(confidence),
         "time_unit": settings.time_unit,
         "duration": settings.duration,
         "warmup": settings.warmup,

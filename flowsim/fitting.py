@@ -705,6 +705,18 @@ def _fit_duration(values: np.ndarray, family: str, free_location: bool) -> Fit:
     if not math.isfinite(loglik):
         raise _NoFit("the fitted density is zero or infinite at some data value")
     *shapes, loc, scale = (float(p) for p in params)
+    # With a free location, the gamma, lognormal, and Weibull likelihoods grow
+    # without bound as the location approaches the smallest observation, so a
+    # fit that ends there is not a maximum (e.g., a lognormal with mean 9e50
+    # from 1, 2, 3, 4). Measured fitted gaps are either below 1e-15 of the
+    # data's range or above 1e-3, so 1e-6 separates them. The exponential's
+    # location equals the minimum at its true maximum, so it is kept.
+    if free_location and family in ("gamma", "lognormal", "weibull"):
+        if float(values.min()) - loc <= 1e-6 * float(np.ptp(values)):
+            raise _NoFit(
+                "its fitted minimum time reached the smallest observation, "
+                "where the likelihood has no maximum; fit without shifted=True"
+            )
     if family == "exponential":
         distribution = exponential(mean=scale)
     elif family == "gamma":
@@ -759,7 +771,7 @@ def _fit_count(values: np.ndarray, family: str) -> Fit:
     # Both maximum likelihood fits set the mean to the sample mean.
     mean, variance = float(values.mean()), float(values.var())
     if mean == 0:
-        raise _NoFit("every count is zero")
+        raise _NoFit("every count is zero, so demand is the constant per_period=0")
     if family == "poisson":
         frozen = st.poisson(mean)
         distribution, free = poisson(mean=mean), 1

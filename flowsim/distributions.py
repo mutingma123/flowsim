@@ -22,6 +22,7 @@ from dataclasses import dataclass, fields, is_dataclass
 from numbers import Real
 
 import numpy as np
+from scipy.special import zeta
 
 
 def _bad(fn: str, rule: str, example: str, got: dict[str, object]) -> ValueError:
@@ -531,9 +532,26 @@ class Weibull(Distribution):
 
     @property
     def sd(self) -> float:
-        first = math.gamma(1 + 1 / self.shape)
-        second = math.gamma(1 + 2 / self.shape)
-        return self.scale * math.sqrt(second - first**2)
+        # The variance is scale^2 * (Gamma(1 + 2x) - Gamma(1 + x)^2) for
+        # x = 1 / shape, i.e., scale^2 * Gamma(1 + x)^2 * expm1(L) with
+        # L = lgamma(1 + 2x) - 2 lgamma(1 + x). Subtracting the gamma values
+        # cancels for a large shape (shape 1e8 gave a negative variance), so
+        # a small x takes L from the series of lgamma(1 + z), whose terms are
+        # (-1)^n zeta(n) z^n / n for n >= 2; they sum to 1e-15 accuracy here.
+        x = 1 / self.shape
+        if x >= 0.01:
+            log_ratio = math.lgamma(1 + 2 * x) - 2 * math.lgamma(1 + x)
+            return self.scale * math.gamma(1 + x) * math.sqrt(math.expm1(log_ratio))
+        # L = x^2 * series, and sqrt(expm1(L)) = x * sqrt(series * expm1(L) / L).
+        # x^2 enters only the expm1(L) / L factor, which tends to 1, so a huge
+        # shape (1e170, where x^2 underflows) still gives a positive sd.
+        series = sum(
+            (-1) ** n * float(zeta(n)) * (2**n - 2) * x ** (n - 2) / n
+            for n in range(2, 12)
+        )
+        log_ratio = x * x * series
+        growth = math.expm1(log_ratio) / log_ratio if log_ratio > 0 else 1.0
+        return self.scale * math.gamma(1 + x) * x * math.sqrt(series * growth)
 
     def __call__(self, rng):
         return float(self.scale * rng.weibull(a=self.shape))

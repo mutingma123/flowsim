@@ -1178,8 +1178,11 @@ and `ALL_FAMILIES` adds uniform, triangular, and beta, which are fitted only
 when named because their fitted endpoints hug the sample's minimum and maximum,
 so they win on data from unrelated families and never draw beyond the observed
 range. `shifted=True` also fits a minimum time (a location) for the four
-families that otherwise start at zero. Times recorded to the nearest minute
-produce ties and exact zeros, and a warning says the values look rounded. A
+families that otherwise start at zero. A shifted gamma, lognormal, or Weibull
+whose minimum time reaches the smallest observation appears in `fits.failed`,
+since its likelihood grows without bound there (e.g., most shifted lognormal
+fits to ten or fewer values). Times recorded to the nearest minute produce ties
+and exact zeros, and a warning says the values look rounded. A
 zero value leaves gamma, lognormal, and Weibull starting at zero without a
 finite likelihood, so they appear in `fits.failed`. When no family fits,
 `empirical(data)` resamples the observed values instead. For whole-number
@@ -1521,8 +1524,8 @@ metric, and "data unit" means the units of the fitted data.
 | `lost` | units | Units of incoming orders lost in the period. |
 | `on_hand` | units | Stock on hand at the end of the period, after the review's order. |
 | `backorders` | units | Backorders at the end of the period. |
-| `on_order` | units | Units ordered but not yet received at the end of the period. |
-| `position` | units | Inventory position at the end of the period: on hand plus on order minus backorders. |
+| `on_order` | units | Units ordered but not yet received, recorded after this stage's order, so an order that the stage above loses later in the same review still counts. |
+| `position` | units | Inventory position after this stage's order, i.e., on hand plus on order minus backorders, with on order as recorded in that column. |
 | `forecast` | units | One-period forecast used for the order, i.e., the moving average of incoming orders, or of consumer demand when forecast_from is 'end_demand', including this period. |
 | `target` | units | Order-up-to target used for the period's order. |
 | `order_quantity` | units | Quantity ordered at the period's review. |

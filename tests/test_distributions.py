@@ -356,3 +356,21 @@ def test_a_shift_of_a_custom_distribution_exports_as_a_function(tmp_path):
     )
     assert spec._definitions["Desk"]["service_time"] == "<function>"
     assert spec._definitions["Desk"]["reconstructible"] is False
+
+
+@pytest.mark.parametrize(
+    ("shape", "sd"),
+    [
+        # Rayleigh: sd = scale * sqrt(1 - pi / 4).
+        (2, 10 * math.sqrt(1 - math.pi / 4)),
+        # Gamma(5) - Gamma(3)^2 = 24 - 4, so sd = 10 * sqrt(20).
+        (0.5, 10 * math.sqrt(20)),
+        # A large shape approaches sd = scale * pi / (sqrt(6) * shape), where
+        # subtracting the two gamma values gave a negative variance.
+        (1e8, 10 * math.pi / (math.sqrt(6) * 1e8)),
+        # x = 1e-170, so x^2 underflows; the sd once came out as zero.
+        (1e170, 10 * math.pi / (math.sqrt(6) * 1e170)),
+    ],
+)
+def test_weibull_sd_matches_hand_values(shape, sd):
+    assert flowsim.weibull(shape=shape, scale=10).sd == pytest.approx(sd, rel=1e-7)

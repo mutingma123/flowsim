@@ -337,11 +337,13 @@ def chain_diagram(model: Model) -> go.Figure:
     row = [name for name in names if positions[name][1] == 0]
     shipments = list(zip(row, row[1:]))
     stages = {node.name: node for node in supply.stock_points}
-    production = [
-        (origin, target)
-        for origin, target in model.graph.edges
+    # Each production edge keeps its branch share, which labels its arrow.
+    shares = {
+        (origin, target): edge_label(data)
+        for origin, target, data in model.graph.edges(data=True)
         if model.exit.name not in (origin, target)
-    ]
+    }
+    production = list(shares)
 
     def label_gap(name: str) -> float:
         """Return the distance below a node that clears its label."""
@@ -364,11 +366,13 @@ def chain_diagram(model: Model) -> go.Figure:
         # or reaches one from below stops farther away, past the label.
         leave = label_gap(origin) if uy < -0.5 else 0.17
         reach = label_gap(target) if uy > 0.5 else 0.17
+        tip = (x_end - reach * ux - shift * uy, y_end - reach * uy + shift * ux)
+        tail = (x_start + leave * ux - shift * uy, y_start + leave * uy + shift * ux)
         figure.add_annotation(
-            x=x_end - reach * ux - shift * uy,
-            y=y_end - reach * uy + shift * ux,
-            ax=x_start + leave * ux - shift * uy,
-            ay=y_start + leave * uy + shift * ux,
+            x=tip[0],
+            y=tip[1],
+            ax=tail[0],
+            ay=tail[1],
             xref="x",
             yref="y",
             axref="x",
@@ -379,6 +383,17 @@ def chain_diagram(model: Model) -> go.Figure:
             arrowcolor=GRAY,
             text="",
         )
+        if shares.get((origin, target)):
+            # A branch share sits on its own arrow, 40% of the way from the
+            # branching node, so it cannot be read as the share of a return
+            # route or of a neighboring arrow in the fan.
+            figure.add_annotation(
+                x=tail[0] + 0.4 * (tip[0] - tail[0]),
+                y=tail[1] + 0.4 * (tip[1] - tail[1]),
+                text=shares[(origin, target)],
+                showarrow=False,
+                bgcolor="white",
+            )
         if (origin, target) in shipments and target in stages:
             figure.add_annotation(
                 x=(x_start + x_end) / 2,

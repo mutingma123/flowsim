@@ -118,6 +118,8 @@ _STATION_TYPES = {
 }
 # One row per stock point and review period. Stock columns are end-of-period
 # values after the review's order, and flow columns are totals for the period.
+# on_order and position are recorded at the stage's own review, so an order
+# that the stage above loses later in the same review still counts in them.
 INVENTORY_SCHEMA = {
     "stock_point": pl.String,
     "period": pl.Int64,
@@ -1256,11 +1258,11 @@ _SCHEMA_COLUMNS = {
         ),
         "backorders": ("Backorders at the end of the period.", "units"),
         "on_order": (
-            "Units ordered but not yet received at the end of the period.",
+            "Units ordered but not yet received, recorded after this stage's order, so an order that the stage above loses later in the same review still counts.",
             "units",
         ),
         "position": (
-            "Inventory position at the end of the period: on hand plus on order minus backorders.",
+            "Inventory position after this stage's order, i.e., on hand plus on order minus backorders, with on order as recorded in that column.",
             "units",
         ),
         "forecast": (
