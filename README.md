@@ -1282,7 +1282,7 @@ every 2 minutes, which is faster than the line can work, and the saw has
 line as raw stock. This pattern keeps the line saturated (i.e., it never
 starves for blanks), so the parts completed by closing measure one shift's
 output from an empty line. The video
-[FlowSim: modeling a machining line](https://youtu.be/kY1KzMO9g-I) walks
+[FlowSim: modeling a machining line](https://youtu.be/jWuCiGMI9fU) walks
 through this model and its scenario study.
 Raw stock counts toward flow time and `remaining_at_close`, so the study reports
 `completed_at_close`, and work in process (`mean_wip`) begins only at admission
@@ -1335,7 +1335,7 @@ with a ten-week moving average. `pixi run supply-chain` writes the comparison
 report, the per-replication stock-point table, the first replication's records
 and viewer, and the chain's diagram (`network.html`, drawn by
 `model.diagram()`) under `output/supply_chain/`. The video
-[FlowSim: the bullwhip effect](https://youtu.be/SbkiDw28vhI) walks through this
+[FlowSim: the bullwhip effect](https://youtu.be/Eir_tSuytso) walks through this
 study.
 
 `capacity_study` replaces the factory's two-week lead time with a brewhouse
@@ -1876,7 +1876,7 @@ new terminal session with `cd ~/OM522/flowsim`.
 
 ### 5. Reproduce the core video
 
-The core video is [FlowSim: the core workflow](https://youtu.be/lRh8qnjg4lo).
+The core video is [FlowSim: the core workflow](https://youtu.be/5vstGf6u48U).
 
 ```bash
 pixi run demo
@@ -1911,7 +1911,7 @@ start output\deterministic\viewer.html
 ### 6. Reproduce the service day video
 
 The service day video is
-[FlowSim: staffing a service day](https://youtu.be/z-lPhexe7ZY).
+[FlowSim: staffing a service day](https://youtu.be/W5rkeS2SmCY).
 
 ```bash
 pixi run exercise
@@ -1991,24 +1991,25 @@ other Python environments as the distribution `classroom-flowsim` (imported as
 
 ## Videos
 
-Four videos walk through FlowSim, and all four are in one
-[YouTube playlist](https://www.youtube.com/playlist?list=PLGOCHatbz0gA). Each
+Five videos walk through FlowSim, and all five are in one
+[YouTube playlist](https://www.youtube.com/playlist?list=PLXLjk3y_o8_Y). Each
 video's numbers come from a task in this repository, so a student can reproduce
 what the video shows.
 
 | Video | Task | README section |
 | --- | --- | --- |
-| [FlowSim: the core workflow](https://youtu.be/lRh8qnjg4lo) | `pixi run demo` | Setup for OM 522, step 5 |
-| [FlowSim: staffing a service day](https://youtu.be/z-lPhexe7ZY) | `pixi run exercise` | Classroom exercise, and Setup for OM 522, step 6 |
-| [FlowSim: modeling a machining line](https://youtu.be/kY1KzMO9g-I) | `pixi run operations` | Machining line |
-| [FlowSim: the bullwhip effect](https://youtu.be/SbkiDw28vhI) | `pixi run supply-chain` | Supply chain example |
+| [FlowSim: the core workflow](https://youtu.be/5vstGf6u48U) | `pixi run demo` | Setup for OM 522, step 5 |
+| [FlowSim: staffing a service day](https://youtu.be/W5rkeS2SmCY) | `pixi run exercise` | Classroom exercise, and Setup for OM 522, step 6 |
+| [FlowSim: modeling a machining line](https://youtu.be/jWuCiGMI9fU) | `pixi run operations` | Machining line |
+| [FlowSim: the bullwhip effect](https://youtu.be/Eir_tSuytso) | `pixi run supply-chain` | Supply chain example |
+| [FlowSim: drawing a model in the builder](https://youtu.be/pryrCaFfH7s) | `flowsim.builder("output/builder.html")` | Drawing a model in the browser |
 
-The videos were recorded before FlowSim had named distributions, so their code
-calls NumPy directly (e.g., `lambda rng: rng.exponential(scale=3)`) where this
-README uses a named distribution such as `exponential(mean=3)`. The two forms
-draw the same values (see Durations and distributions), and the code the videos
-show still runs. The videos also predate the model builder (see Drawing a model
-in the browser).
+The first four videos were recorded before FlowSim had named distributions, so
+their code calls NumPy directly (e.g., `lambda rng: rng.exponential(scale=3)`)
+where this README uses a named distribution such as `exponential(mean=3)`. The
+two forms draw the same values (see Durations and distributions), and the code
+the videos show still runs. The builder video draws its model with named
+distributions in the model builder (see Drawing a model in the browser).
 
 ## For maintainers
 

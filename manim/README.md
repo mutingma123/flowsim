@@ -7,14 +7,14 @@ until the presenter advances it. The setup was copied from
 
 | Folder | Video | Unlisted YouTube copy |
 |---|---|---|
-| `flowsim-core/` | FlowSim: the core workflow (model, tables, viewer, replications, comparisons, extensions) | https://youtu.be/lRh8qnjg4lo |
-| `service-day/` | FlowSim: staffing a service day (the classroom exercise) | https://youtu.be/z-lPhexe7ZY |
-| `machining-line/` | FlowSim: modeling a machining line (bottleneck, buffer plans, CNC failures, lunch staffing) | https://youtu.be/kY1KzMO9g-I |
-| `supply-chain/` | FlowSim: the bullwhip effect (four stages, demand sharing, brewing capacity) | https://youtu.be/SbkiDw28vhI |
-| `builder/` | FlowSim: drawing a model in the builder (the clinic drawn, checked, typed, run, and explored) | Not yet uploaded |
+| `flowsim-core/` | FlowSim: the core workflow (model, tables, viewer, replications, comparisons, extensions) | https://youtu.be/5vstGf6u48U |
+| `service-day/` | FlowSim: staffing a service day (the classroom exercise) | https://youtu.be/W5rkeS2SmCY |
+| `machining-line/` | FlowSim: modeling a machining line (bottleneck, buffer plans, CNC failures, lunch staffing) | https://youtu.be/jWuCiGMI9fU |
+| `supply-chain/` | FlowSim: the bullwhip effect (four stages, demand sharing, brewing capacity) | https://youtu.be/Eir_tSuytso |
+| `builder/` | FlowSim: drawing a model in the builder (the clinic drawn, checked, typed, run, and explored) | https://youtu.be/pryrCaFfH7s |
 
-The four uploads are also in one unlisted
-[playlist](https://www.youtube.com/playlist?list=PLGOCHatbz0gA). A re-rendered video
+The five uploads are also in one unlisted
+[playlist](https://www.youtube.com/playlist?list=PLXLjk3y_o8_Y). A re-rendered video
 needs a new upload, since YouTube does not replace a video's file in place.
 
 ## Layout
