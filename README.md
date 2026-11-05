@@ -1385,7 +1385,7 @@ the surge.
 ## Reference
 
 This section lists the replication metrics and every table column, both
-generated from the catalog in `flowsim/results.py`, and then states the
+generated from the catalog in `flowsim/catalog.py`, and then states the
 measurement rules and the order of simultaneous events.
 `tests/test_readme.py` checks that the two generated listings match the catalog.
 

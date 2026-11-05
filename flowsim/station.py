@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from flowsim.results import (
+from flowsim.records import (
     Phase,
     Status,
     _Activity,

@@ -15,8 +15,8 @@ from flowsim.distributions import Distribution
 from flowsim.engine import simulate
 from flowsim.plots import chain_diagram, network_diagram
 from flowsim.policies import OrderUpTo
+from flowsim.records import SUPPLIER
 from flowsim.results import (
-    SUPPLIER,
     Experiment,
     Results,
     display_html,

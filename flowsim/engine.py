@@ -13,9 +13,8 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from flowsim.distributions import Distribution, Shifted
-from flowsim.results import (
+from flowsim.records import (
     SUPPLIER,
-    Results,
     Status,
     _Activity,
     _Customer,
@@ -25,6 +24,7 @@ from flowsim.results import (
     _State,
     _Visit,
 )
+from flowsim.results import Results
 from flowsim.scheduler import Event, Scheduler
 from flowsim.schedules import next_arrival
 from flowsim.station import _Station

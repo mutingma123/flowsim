@@ -8,7 +8,7 @@ import pytest
 import flowsim
 import flowsim.plots
 from flowsim import Model, compare, exponential
-from flowsim.results import metric_units
+from flowsim.catalog import metric_units
 from tests.models import (
     beer_chain,
     branching_service,

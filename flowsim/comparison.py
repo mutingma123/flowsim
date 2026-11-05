@@ -9,6 +9,7 @@ from pathlib import Path
 import plotly.graph_objects as go
 import polars as pl
 
+from flowsim.catalog import unknown
 from flowsim.model import Model
 from flowsim.reporting import (
     comparison_differences,
@@ -26,7 +27,6 @@ from flowsim.results import (
     display_text,
     missing_attribute,
     moved_settings,
-    unknown,
     window_line,
 )
 from flowsim.viewer import Viewer

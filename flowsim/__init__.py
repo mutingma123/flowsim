@@ -1,9 +1,10 @@
 """Define, simulate, and explore small service networks and supply chains."""
 
-# results imports the version while this package loads, so it comes first.
+# reporting imports the version while this package loads, so it comes first.
 __version__ = "1.0.0"
 
 from flowsim.builder_page import builder
+from flowsim.catalog import explain, metrics
 from flowsim.comparison import Comparison, compare
 from flowsim.distributions import (
     Distribution,
@@ -34,7 +35,7 @@ from flowsim.fitting import (
 )
 from flowsim.model import Model, Node
 from flowsim.policies import moving_average, order_up_to
-from flowsim.results import Experiment, Results, Settings, explain, metrics
+from flowsim.results import Experiment, Results, Settings
 from flowsim.viewer import Viewer
 
 __all__ = [

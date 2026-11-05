@@ -1,6 +1,6 @@
 # H6 Split results.py and remove the import cycle
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H3 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -70,4 +70,34 @@ rename map entry cannot explain, and any test removal not named in this brief. A
 
 ## Progress
 
+- baseline: 502 passed @ b24044e
+- gates (logs/2026-11-05-1241-gate-*-H6.log): check EXIT=0, 502 passed in 188.9 s; examples
+  EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 105 over 80 decisions, 11.9 per
+  1,000 statements (from 109); bench against the baseline commit under the same load: run
+  0.898, compare 0.932, dashboard 1.004, memory within 1.006.
+- mutation (logs/2026-11-05-1249-mutation-H6-*.log): station 430/480, engine 738/826, results
+  metrics 745/807.
+- closure: no function-level FlowSim import in results.py; results.py 1,529 lines (from
+  3,252; catalog.py 1,237, records.py 379); the import test checks dependency direction.
+
 ## Result
+
+catalog.py holds Metric (keyword entries), METRICS, COLUMNS, EXCLUDED, the metric lists,
+metrics(), explain(), the lookup errors, and one SCOPES table that replaces _SCOPE_TABLES,
+_SCOPE_LABELS, metrics()'s needs, explain()'s where, and reporting's _GROUPS, _HEADINGS, and
+location_column; Metric.table reads SCOPES. records.py holds the schemas, Status, Phase, the
+slotted records, _frame, and the headline column orders. The export helpers and interval
+estimate moved to reporting.py, so results.py imports plots and reporting at module level. One
+function-level import remains, reporting.dashboard's PageExperiment (a subclass of
+Experiment, whose methods call reporting); removing it needs a signature or step-order change
+the brief ruled out. The implementer byte-compared all 129 CSV and metadata files and a dump
+of every catalog fact against a pre-edit run: identical. AGENTS.md step 3 now names
+records.py and catalog.py (owner-approved line). Implemented by an Opus subagent.
+
+Decisions the session made: tests/test_simulation.py imported records under the alias
+`results`; its uses were renamed to `records` (names only, no values). The README-table
+failure message in tests/test_readme.py named results.py and now names catalog.py.
+
+Codex adversarial review (streams/reviews/H6-codex.md): approve, no findings; it checked all
+59 metrics, the moved definitions, and the scope mappings. Its byte comparison is the golden
+check above.

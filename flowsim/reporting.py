@@ -9,6 +9,7 @@ stock point.
 
 from __future__ import annotations
 
+import json
 import math
 from collections.abc import Mapping
 from pathlib import Path
@@ -17,7 +18,19 @@ from typing import TYPE_CHECKING
 import numpy as np
 import plotly.graph_objects as go
 import polars as pl
+from scipy.stats import t
 
+from flowsim import __version__
+from flowsim.catalog import (
+    METRICS,
+    SCOPES,
+    Inapplicable,
+    inapplicable,
+    metric_error,
+    metric_units,
+    scope_name,
+    unknown,
+)
 from flowsim.plots import (
     BLUE,
     GRAY,
@@ -31,32 +44,45 @@ from flowsim.plots import (
     run_payload,
     style,
 )
-from flowsim.results import (
-    METRICS,
-    Inapplicable,
-    PageExperiment,
-    _write_metadata,
-    confidence_level,
-    inapplicable,
-    interval_estimate,
-    interval_frame,
-    metric_error,
-    metric_units,
-    remove_stale_exports,
-    require_flowsim_folder,
-    scope_name,
-    unknown,
-)
+from flowsim.records import interval_frame
+from flowsim.validation import number
 
 if TYPE_CHECKING:
     from flowsim.results import Experiment
 
-# Interval-table column headings on the report page.
-_HEADINGS = {
-    "scenario": "Scenario",
-    "station": "Station",
-    "stock_point": "Stock point",
-}
+
+def confidence_level(value: float) -> float:
+    level = number(
+        value=value,
+        label="Confidence level",
+        positive=True,
+    )
+    if level >= 1:
+        raise ValueError("Confidence level must be below one.")
+    return level
+
+
+def interval_estimate(values: np.ndarray, confidence: float) -> dict:
+    """Estimate uncertainty across independent finite replication values."""
+    values = values[np.isfinite(values)]
+    count = len(values)
+    mean = float(values.mean()) if count else None
+    lower = upper = None
+    # Estimates have the metric's units. Standard error divides by sqrt(runs).
+    if mean is not None and count >= 2:
+        half_width = float(
+            t.ppf((1 + confidence) / 2, df=count - 1)
+            * values.std(ddof=1)
+            / np.sqrt(count)
+        )
+        lower = mean - half_width
+        upper = mean + half_width
+    return {
+        "observed_runs": count,
+        "mean": mean,
+        "lower": lower,
+        "upper": upper,
+    }
 
 
 def location_column(metric: str) -> str:
@@ -65,7 +91,7 @@ def location_column(metric: str) -> str:
     Stock-point metrics use a stock_point column. Every other metric keeps the
     station column, which is null for a system metric.
     """
-    return "stock_point" if METRICS[metric].scope == "stock_point" else "station"
+    return SCOPES[METRICS[metric].scope].column
 
 
 def check_request(metric: str, station: str | None, stock_point: str | None) -> None:
@@ -429,7 +455,7 @@ def interval_figure(
     if scenarios:
         y_label = "Scenario"
     elif places and places[0] is not None:
-        y_label = _HEADINGS[column]
+        y_label = SCOPES[METRICS[metric].scope].heading
     else:
         y_label = ""
     style(
@@ -542,11 +568,7 @@ def replication_figure(
 
 
 # Metric menu headings, in catalog order.
-_GROUPS = [
-    ("system", "System metrics"),
-    ("station", "Station metrics"),
-    ("stock_point", "Stock-point metrics"),
-]
+_GROUPS = [(scope, facts.menu) for scope, facts in SCOPES.items()]
 
 
 def scenario_runs(
@@ -717,6 +739,10 @@ def dashboard(
     which names the metric, location, and baseline shown first. An
     experiment's single entry has the key "".
     """
+    # PageExperiment subclasses Experiment, whose methods call this module,
+    # so results.py imports reporting.py and this one class comes in late.
+    from flowsim.results import PageExperiment
+
     level = confidence_level(confidence)
     experiments = {
         name: PageExperiment(experiment.runs)
@@ -783,6 +809,89 @@ def dashboard(
             "RUN_DATA": "\n".join(run_data),
         },
     )
+
+
+def write_text(path: str | Path, text: str) -> None:
+    destination = Path(path)
+    destination.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    destination.write_text(
+        data=text,
+        encoding="utf-8",
+    )
+
+
+# Every file name a FlowSim export can write. An export removes the ones it did
+# not write, so a folder never mixes files from two different exports.
+EXPORT_FILE_NAMES = frozenset(
+    {
+        "customers.csv",
+        "visits.csv",
+        "states.csv",
+        "stations.csv",
+        "summary.csv",
+        "activities.csv",
+        "failures.csv",
+        "inventory.csv",
+        "shipments.csv",
+        "stock_points.csv",
+        "metadata.json",
+        "runs.csv",
+        "intervals.csv",
+        "differences.csv",
+    }
+)
+
+
+def require_flowsim_folder(destination: Path) -> None:
+    """Refuse a folder that holds export-named files FlowSim did not write.
+
+    A folder counts as FlowSim's when its metadata.json parses as a JSON object
+    with a "flowsim_version" key. A missing folder or one without export-named
+    files is fine.
+    """
+    if not destination.is_dir():
+        return
+    clashing = sorted(
+        name for name in EXPORT_FILE_NAMES if (destination / name).is_file()
+    )
+    if not clashing:
+        return
+    try:
+        metadata = json.loads((destination / "metadata.json").read_text())
+    except (OSError, ValueError):
+        metadata = None
+    if isinstance(metadata, dict) and "flowsim_version" in metadata:
+        return
+    raise ValueError(
+        f"{destination} holds {', '.join(clashing)}, but no FlowSim "
+        "metadata.json, so FlowSim cannot tell whether it wrote them and will "
+        "not replace or delete them. Export into an empty folder or one an "
+        "earlier FlowSim export wrote."
+    )
+
+
+def remove_stale_exports(destination: Path, written: set[str]) -> None:
+    """Delete FlowSim export files in destination that this export did not write."""
+    for name in EXPORT_FILE_NAMES - written:
+        stale = destination / name
+        if stale.is_file():
+            stale.unlink()
+
+
+def _write_metadata(path: str | Path, data: dict) -> None:
+    """Write export metadata as JSON, stamped with the FlowSim version.
+
+    The file is written beside its destination and then renamed over it, so an
+    interrupted write keeps the earlier metadata, which marks the folder as
+    FlowSim's for require_flowsim_folder.
+    """
+    destination = Path(path)
+    partial = destination.with_name(destination.name + ".partial")
+    write_text(partial, json.dumps({"flowsim_version": __version__, **data}, indent=2))
+    partial.replace(destination)
 
 
 def export_tables(

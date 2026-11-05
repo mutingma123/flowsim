@@ -41,6 +41,6 @@ distributions in `flowsim/distributions.py`, and notebook interfaces in
 1. Add the argument to `Model.station` or `Model.source` with validation in
    `flowsim/model.py`, including any required companion argument.
 2. Implement it in `flowsim/station.py` or `flowsim/engine.py`.
-3. Add any new column to the schemas in `flowsim/results.py`, and any new
-   replication metric to `METRICS` there.
+3. Add any new column to the schemas in `flowsim/records.py`, and any new
+   replication metric to `METRICS` in `flowsim/catalog.py`.
 4. Add a hand-calculated test, and update the README section and tables.

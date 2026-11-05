@@ -19,8 +19,9 @@ import plotly.graph_objects as go
 import polars as pl
 from plotly.offline import get_plotlyjs
 
+from flowsim.catalog import METRICS, unknown
 from flowsim.distributions import Distribution
-from flowsim.results import METRICS, SUPPLIER, Phase, Status, unknown
+from flowsim.records import SUPPLIER, Phase, Status
 from flowsim.validation import integer
 
 if TYPE_CHECKING:

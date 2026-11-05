@@ -6,16 +6,14 @@ import pytest
 
 import flowsim
 from flowsim import compare, fit_all
+from flowsim.catalog import COLUMNS, EXCLUDED, METRICS
 from flowsim.fitting import _PARAMETER_COLUMNS
-from flowsim.results import (
+from flowsim.records import (
     ACTIVITY_SCHEMA,
-    COLUMNS,
     CUSTOMER_SCHEMA,
-    EXCLUDED,
     FAILURE_SCHEMA,
     INTERVAL_SCHEMA,
     INVENTORY_SCHEMA,
-    METRICS,
     SHIPMENT_SCHEMA,
     STATE_SCHEMA,
     STATION_SCHEMA,

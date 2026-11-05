@@ -24,15 +24,11 @@ from flowsim import (
     moving_average,
     order_up_to,
 )
+from flowsim.catalog import STATION_METRICS, STOCK_POINT_METRICS, SYSTEM_METRICS
 from flowsim.model import Node
 from flowsim.plots import chain_positions, layout_layers, page_template
-from flowsim.results import (
-    STATION_METRICS,
-    STATION_SCHEMA,
-    STOCK_POINT_METRICS,
-    SYSTEM_METRICS,
-    Settings,
-)
+from flowsim.records import STATION_SCHEMA
+from flowsim.results import Settings
 from flowsim.viewer import Viewer
 from tests.models import (
     beer_chain,

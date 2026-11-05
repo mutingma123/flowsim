@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import pytest
 
 from flowsim import metrics
-from flowsim.results import COLUMNS, METRICS
+from flowsim.catalog import COLUMNS, METRICS
 
 README = Path(__file__).parents[1] / "README.md"
 
@@ -108,7 +108,7 @@ def generated(name: str) -> str:
 def test_readme_tables_match_catalog(name, render):
     expected = render()
     assert generated(name) == expected, (
-        f"The README's {name} differs from the catalog in flowsim/results.py. "
+        f"The README's {name} differs from the catalog in flowsim/catalog.py. "
         f"Replace the text between its markers with:\n\n{expected}\n"
     )
 

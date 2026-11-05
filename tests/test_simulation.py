@@ -14,7 +14,7 @@ import pytest
 from polars.testing import assert_frame_equal
 
 import flowsim
-from flowsim import Model, plots, results, validation
+from flowsim import Model, plots, records, validation
 from tests.models import (
     branching_service,
     deterministic_queue,
@@ -525,12 +525,12 @@ def test_export_round_trip_preserves_missing_values(tmp_path):
     # Results._system_metrics builds the summary without a schema constant, so
     # the summary is read back with its own schema.
     schemas = {
-        "customers": results.CUSTOMER_SCHEMA,
-        "visits": results.VISIT_SCHEMA,
-        "states": results.STATE_SCHEMA,
-        "stations": results.STATION_SCHEMA,
-        "activities": results.ACTIVITY_SCHEMA,
-        "failures": results.FAILURE_SCHEMA,
+        "customers": records.CUSTOMER_SCHEMA,
+        "visits": records.VISIT_SCHEMA,
+        "states": records.STATE_SCHEMA,
+        "stations": records.STATION_SCHEMA,
+        "activities": records.ACTIVITY_SCHEMA,
+        "failures": records.FAILURE_SCHEMA,
     }
     read = {}
     for name, result in runs.items():
@@ -846,13 +846,13 @@ def test_disabled_source_never_samples():
 @pytest.mark.parametrize(
     ("record", "schema"),
     [
-        (results._Customer, results.CUSTOMER_SCHEMA),
-        (results._Visit, results.VISIT_SCHEMA),
-        (results._State, results.STATE_SCHEMA),
-        (results._Activity, results.ACTIVITY_SCHEMA),
-        (results._Failure, results.FAILURE_SCHEMA),
-        (results._Inventory, results.INVENTORY_SCHEMA),
-        (results._Shipment, results.SHIPMENT_SCHEMA),
+        (records._Customer, records.CUSTOMER_SCHEMA),
+        (records._Visit, records.VISIT_SCHEMA),
+        (records._State, records.STATE_SCHEMA),
+        (records._Activity, records.ACTIVITY_SCHEMA),
+        (records._Failure, records.FAILURE_SCHEMA),
+        (records._Inventory, records.INVENTORY_SCHEMA),
+        (records._Shipment, records.SHIPMENT_SCHEMA),
     ],
 )
 def test_record_fields_equal_schema_columns(record, schema):
@@ -860,7 +860,7 @@ def test_record_fields_equal_schema_columns(record, schema):
 
 
 def test_records_reject_misspelled_fields():
-    customer = results._Customer(
+    customer = records._Customer(
         customer_id=1,
         source="Customers",
         arrival_time=0.0,
@@ -872,7 +872,7 @@ def test_records_reject_misspelled_fields():
 def test_record_tables_read_columns_by_name():
     # By hand, each value belongs in the column of the same name, even though
     # wait_time comes after server_id and blocked_time in the schema.
-    visit = results._Visit(
+    visit = records._Visit(
         customer_id=4,
         source="Customers",
         customer_type="Repair",
@@ -886,7 +886,7 @@ def test_record_tables_read_columns_by_name():
         wait_time=2.0,
         service_time=2.5,
     )
-    row = results._frame([visit], results.VISIT_SCHEMA).row(0, named=True)
+    row = records._frame([visit], records.VISIT_SCHEMA).row(0, named=True)
     assert row == {
         "customer_id": 4,
         "source": "Customers",
@@ -930,16 +930,16 @@ def test_statuses_and_phases_use_their_enumerations():
     model.route([arrivals, prep, finish, model.exit])
     result = model.run(duration=3.5)
     assert result.customers.get_column("status").to_list() == [
-        results.Status.IN_SERVICE,
-        results.Status.BLOCKED,
-        results.Status.WAITING,
-        results.Status.WAITING,
+        records.Status.IN_SERVICE,
+        records.Status.BLOCKED,
+        records.Status.WAITING,
+        records.Status.WAITING,
     ]
     assert result.activities.rows() == [
-        (1, "Prep", 1, results.Phase.PROCESSING, 0.0, 1.0),
-        (1, "Finish", 1, results.Phase.PROCESSING, 1.0, None),
-        (2, "Prep", 1, results.Phase.PROCESSING, 1.0, 2.0),
-        (2, "Prep", 1, results.Phase.BLOCKED, 2.0, None),
+        (1, "Prep", 1, records.Phase.PROCESSING, 0.0, 1.0),
+        (1, "Finish", 1, records.Phase.PROCESSING, 1.0, None),
+        (2, "Prep", 1, records.Phase.PROCESSING, 1.0, 2.0),
+        (2, "Prep", 1, records.Phase.BLOCKED, 2.0, None),
     ]
 
 
@@ -1050,11 +1050,11 @@ def test_every_customer_has_a_status_from_the_arrival_instant():
     # customer 3, who arrived at 2, is waiting.
     result = deterministic_queue().run(duration=2.5)
     assert result.customers.get_column("status").to_list() == [
-        results.Status.COMPLETED,
-        results.Status.IN_SERVICE,
-        results.Status.WAITING,
+        records.Status.COMPLETED,
+        records.Status.IN_SERVICE,
+        records.Status.WAITING,
     ]
-    assert [status.value for status in results.Status] == [
+    assert [status.value for status in records.Status] == [
         "outside",
         "waiting",
         "in_service",
@@ -1234,33 +1234,46 @@ def test_only_the_example_tests_import_examples():
     assert importers == {"test_examples.py"}
 
 
-def test_imports_sit_at_module_level_except_the_plot_methods():
-    # plots.py and reporting.py import results.py, so Results imports its plot
-    # functions and Experiment its reporting functions when a method runs. No
-    # other function imports a module.
+def test_imports_follow_the_dependency_direction():
+    # catalog.py and records.py import no FlowSim module but validation.py,
+    # which imports none. results.py imports plots.py and reporting.py at
+    # module level, and they import catalog.py and records.py, not results.py.
+    # The one import inside a function is reporting.dashboard's PageExperiment,
+    # a subclass of Experiment, whose methods call reporting.py.
     package = Path(flowsim.__file__).parent
-    local = []
-    for path in sorted(package.glob("*.py")):
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        for function in ast.walk(tree):
-            if isinstance(function, ast.FunctionDef):
-                for node in ast.walk(function):
-                    if isinstance(node, ast.ImportFrom):
-                        local.append((path.name, node.module))
-                    elif isinstance(node, ast.Import):
-                        local.extend((path.name, alias.name) for alias in node.names)
-    assert set(local) == {
-        ("results.py", "flowsim.plots"),
-        ("results.py", "flowsim.reporting"),
+    trees = {
+        path.name: ast.parse(path.read_text(encoding="utf-8"))
+        for path in sorted(package.glob("*.py"))
     }
-    tree = ast.parse((package / "validation.py").read_text(encoding="utf-8"))
-    imported = [
-        node.module if isinstance(node, ast.ImportFrom) else alias.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for alias in node.names
-    ]
-    assert not any(name.startswith("flowsim") for name in imported)
+
+    def modules(nodes):
+        return {
+            node.module if isinstance(node, ast.ImportFrom) else alias.name
+            for node in nodes
+            if isinstance(node, (ast.Import, ast.ImportFrom))
+            for alias in node.names
+        }
+
+    for name in ["catalog.py", "records.py"]:
+        imported = modules(ast.walk(trees[name]))
+        assert {module for module in imported if module.startswith("flowsim")} <= {
+            "flowsim.validation"
+        }
+    assert not any(
+        module.startswith("flowsim")
+        for module in modules(ast.walk(trees["validation.py"]))
+    )
+    # Module-level statements only, so imports under TYPE_CHECKING are left out.
+    for name in ["plots.py", "reporting.py"]:
+        assert "flowsim.results" not in modules(trees[name].body)
+    local = {
+        (name, module)
+        for name, tree in trees.items()
+        for function in ast.walk(tree)
+        if isinstance(function, ast.FunctionDef)
+        for module in modules(ast.walk(function))
+    }
+    assert local == {("reporting.py", "flowsim.results")}
 
 
 def test_a_station_without_an_onward_route_names_the_station():
