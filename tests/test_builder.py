@@ -410,10 +410,12 @@ def refuse_file(page, tmp_path, data, message):
     """Load a file that must be refused and check the model did not change."""
     code = page.locator("#code").text_content()
     state = page.evaluate("window.flowsimBuilder.state()")
-    path = tmp_path / "bad.json"
+    # Each refused file has its own name, so the wait below cannot be met by
+    # the status the previous refusal left on the page.
+    path = tmp_path / f"bad-{len(list(tmp_path.glob('bad-*.json'))) + 1}.json"
     path.write_text(json.dumps(data), encoding="utf-8")
     page.set_input_files("#load-json", str(path))
-    wait_for_status(page, "Could not load bad.json")
+    wait_for_status(page, f"Could not load {path.name}")
     assert message in page.locator("#file-status").text_content()
     assert page.locator("#code").text_content() == code
     assert page.evaluate("window.flowsimBuilder.state()") == state
