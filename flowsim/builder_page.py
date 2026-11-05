@@ -25,14 +25,31 @@ from flowsim.fitting import COUNT_FAMILIES
 from flowsim.model import BRANCH_SUM_TOLERANCE, Model
 from flowsim.viewer import Viewer
 
-# The version of the page's saved JSON model format.
-FORMAT_VERSION = 1
+# The version of the page's saved JSON model format. Version 2 added customer
+# types, schedules, buffers, abandonment, failures, and priorities; the page
+# still reads version 1 files.
+FORMAT_VERSION = 2
 
-# The arguments the page edits. Each other argument of Model.source and
-# Model.station is listed on the page as excluded.
+# The arguments the page edits: every argument of Model.source and
+# Model.station. An argument added to either later is listed on the page as
+# not edited until the page handles it.
 SUPPORTED = {
-    "source": ("name", "interarrival", "first_arrival", "limit"),
-    "station": ("name", "capacity", "service_time"),
+    "source": ("name", "interarrival", "first_arrival", "limit", "rates", "types"),
+    "station": (
+        "name",
+        "capacity",
+        "service_time",
+        "staffing",
+        "shift_end",
+        "buffer",
+        "external_overflow",
+        "time_to_failure",
+        "repair_time",
+        "failure_clock",
+        "priority",
+        "patience",
+        "abandon_from",
+    ),
 }
 
 
@@ -247,15 +264,19 @@ def builder_html() -> str:
 
 
 def builder(path: str | Path | None = None) -> Viewer:
-    """Open a prototype page that draws a service network and writes its code.
+    """Open a page that draws a service network and writes its FlowSim code.
 
     The page runs offline in a browser. It adds sources, stations, and the
     exit to a canvas, connects them with routes and probabilistic branches,
-    edits names, capacities, and durations (constants or named
-    distributions), and writes a complete FlowSim script that it can copy or
-    download. It saves and loads its own JSON model file. Customer types,
-    schedules, finite buffers, abandonment, failures, priorities, and supply
-    chains are not in the page, so they are added by editing the script.
+    and edits every argument of Model.source and Model.station: durations
+    (constants or named distributions), customer types and their routes,
+    arrival-rate and staffing schedules, finite buffers, abandonment,
+    failures, and priorities. It never chooses a behavior argument (shift_end,
+    external_overflow, abandon_from, or failure_clock) for the student, and
+    lists each missing choice under Checks. It writes a complete FlowSim
+    script that it can copy or download, saves and loads its own JSON model
+    file, and supports the keyboard and undo. Supply chains are not in the
+    page, so they are added by editing the script.
 
     Parameters
     ----------

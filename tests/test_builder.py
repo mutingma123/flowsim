@@ -179,10 +179,10 @@ def assert_same_run(results, expected):
         assert_frame_equal(getattr(results, table), getattr(expected, table))
 
 
-def open_builder(tmp_path, offline_page):
+def open_builder(tmp_path, engine_page):
     path = tmp_path / "builder.html"
     flowsim.builder(path)
-    return offline_page(path)
+    return engine_page(path)
 
 
 def build_branching_service(page):
@@ -238,8 +238,8 @@ def build_branching_service(page):
     drag_route(page, specialist, "exit")
 
 
-def test_builder_writes_the_deterministic_queue(tmp_path, offline_page, monkeypatch):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_writes_the_deterministic_queue(tmp_path, engine_page, monkeypatch):
+    page = open_builder(tmp_path, engine_page)
     assert "Add a source" in page.locator("#problems").inner_text()
     page.fill("#run-duration", "10")
     customers = add_node(
@@ -298,8 +298,8 @@ def test_builder_writes_the_deterministic_queue(tmp_path, offline_page, monkeypa
     assert waits == [0, 1, 2]
 
 
-def test_builder_writes_a_branching_network(tmp_path, offline_page, monkeypatch):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_writes_a_branching_network(tmp_path, engine_page, monkeypatch):
+    page = open_builder(tmp_path, engine_page)
     build_branching_service(page)
     assert "No problems found" in page.locator("#problems").inner_text()
     code = page.locator("#code").text_content()
@@ -329,8 +329,8 @@ def wait_for_status(page, text):
     )
 
 
-def test_builder_saves_and_loads_its_model_file(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_saves_and_loads_its_model_file(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     build_branching_service(page)
     code = page.locator("#code").text_content()
     state = page.evaluate("window.flowsimBuilder.state()")
@@ -339,7 +339,7 @@ def test_builder_saves_and_loads_its_model_file(tmp_path, offline_page):
     saved = tmp_path / download_info.value.suggested_filename
     download_info.value.save_as(saved)
     data = json.loads(saved.read_text(encoding="utf-8"))
-    assert (data["format"], data["version"]) == ("flowsim-builder", 1)
+    assert (data["format"], data["version"]) == ("flowsim-builder", 2)
     assert data == state
     triage = next(node for node in data["nodes"] if node["name"] == "Triage")
     assert triage["service_time"] == {"name": "constant", "value": 1}
@@ -365,8 +365,8 @@ def test_builder_saves_and_loads_its_model_file(tmp_path, offline_page):
         ("print", "print_station"),
     ],
 )
-def test_builder_derives_valid_unique_names(tmp_path, offline_page, name, identifier):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_derives_valid_unique_names(tmp_path, engine_page, name, identifier):
+    page = open_builder(tmp_path, engine_page)
     add_node(page, kind="station", name=name)
     add_node(page, kind="station", name=f"{name} ")
     code = page.locator("#code").text_content()
@@ -408,9 +408,9 @@ def refuse_file(page, tmp_path, data, message):
 
 
 def test_builder_refuses_a_loaded_node_id_that_would_reach_the_html(
-    tmp_path, offline_page
+    tmp_path, engine_page
 ):
-    page = open_builder(tmp_path, offline_page)
+    page = open_builder(tmp_path, engine_page)
     two_node_model(page)
     data = page.evaluate("window.flowsimBuilder.state()")
     hostile = 'n1" onmouseover="window.pwned=1'
@@ -430,8 +430,8 @@ def test_builder_refuses_a_loaded_node_id_that_would_reach_the_html(
     refuse_file(page, tmp_path, repeated, "Two nodes have the id")
 
 
-def test_builder_refuses_a_loaded_route_the_page_would_not_add(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_refuses_a_loaded_route_the_page_would_not_add(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     customers, service = two_node_model(page)
     data = page.evaluate("window.flowsimBuilder.state()")
     routes = data["edges"]
@@ -476,9 +476,9 @@ def test_builder_refuses_a_loaded_route_the_page_would_not_add(tmp_path, offline
 
 
 def test_builder_flags_integers_that_a_number_cannot_hold_exactly(
-    tmp_path, offline_page
+    tmp_path, engine_page
 ):
-    page = open_builder(tmp_path, offline_page)
+    page = open_builder(tmp_path, engine_page)
     two_node_model(page)
     page.fill("#run-duration", "10")
     page.fill("#run-seed", "9007199254740993")
@@ -528,8 +528,8 @@ def test_builder_branch_tolerance_comes_from_the_model_check():
         branch(tolerance * 2)
 
 
-def test_builder_flags_branch_sums_outside_the_model_tolerance(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_flags_branch_sums_outside_the_model_tolerance(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     customers = add_node(
         page,
         kind="source",
@@ -568,9 +568,9 @@ def active_id(page):
 
 
 def test_builder_builds_and_edits_a_model_from_the_keyboard(
-    tmp_path, offline_page, monkeypatch
+    tmp_path, engine_page, monkeypatch
 ):
-    page = open_builder(tmp_path, offline_page)
+    page = open_builder(tmp_path, engine_page)
     page.fill("#run-duration", "10")
     # Adding a node moves focus to its name, and the live region announces it.
     page.focus("#add-source")
@@ -642,8 +642,8 @@ def test_builder_builds_and_edits_a_model_from_the_keyboard(
     assert "Deleted station Service" in page.locator("#announce").text_content()
 
 
-def test_builder_undoes_and_redoes_each_change(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_undoes_and_redoes_each_change(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     assert page.locator("#undo").is_disabled() and page.locator("#redo").is_disabled()
     empty = page.evaluate("window.flowsimBuilder.state()")
     source = add_node(page, kind="source", name="Customers")
@@ -692,8 +692,8 @@ def test_builder_undoes_and_redoes_each_change(tmp_path, offline_page):
     assert undone == 100
 
 
-def test_builder_arranges_nodes_in_left_to_right_layers(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_arranges_nodes_in_left_to_right_layers(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     build_branching_service(page)
     before = page.evaluate("window.flowsimBuilder.state()")
     page.click("#arrange")
@@ -716,8 +716,8 @@ def test_builder_arranges_nodes_in_left_to_right_layers(tmp_path, offline_page):
     assert page.evaluate("window.flowsimBuilder.state()") == before
 
 
-def test_builder_arranges_a_loop_by_steps_from_the_sources(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_arranges_a_loop_by_steps_from_the_sources(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     source = add_node(page, kind="source", name="S")
     first = add_node(page, kind="station", name="A")
     second = add_node(page, kind="station", name="B")
@@ -741,10 +741,8 @@ def history_sizes(page):
     )
 
 
-def test_builder_route_choice_keeps_redo_and_a_route_is_one_step(
-    tmp_path, offline_page
-):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_route_choice_keeps_redo_and_a_route_is_one_step(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     source = add_node(page, kind="source", name="Customers")
     add_node(page, kind="station", name="Desk")
     page.click("#undo")
@@ -760,8 +758,8 @@ def test_builder_route_choice_keeps_redo_and_a_route_is_one_step(
     assert history_sizes(page) == steps + 1
 
 
-def test_builder_arranges_a_long_chain_without_overlap(tmp_path, offline_page):
-    page = open_builder(tmp_path, offline_page)
+def test_builder_arranges_a_long_chain_without_overlap(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
     ids = [add_node(page, kind="source", name="In")]
     ids += [add_node(page, kind="station", name=f"S{index}") for index in range(4)]
     for origin, target in zip(ids, [*ids[1:], "exit"]):
@@ -773,3 +771,447 @@ def test_builder_arranges_a_long_chain_without_overlap(tmp_path, offline_page):
     by_x = sorted((node["x"], node["y"]) for node in nodes)
     assert by_x == [(x, 213) for x in [30, 220, 410, 600, 790, 980]]
     assert page.locator("#canvas").get_attribute("viewBox") == "0 0 1160 520"
+
+
+def problems_text(page):
+    return page.locator("#problems").inner_text()
+
+
+def select_edge(page, origin, target):
+    """Select an arrow by giving it keyboard focus, which selects it."""
+    page.focus(f'.edge-hit[data-from="{origin}"][data-to="{target}"]')
+
+
+def set_edge_types(page, origin, target, types):
+    select_edge(page, origin, target)
+    page.check("#edge-types-some")
+    for type_id in types:
+        page.check(f"#edge-type-{type_id}")
+
+
+def select_node(page, node_id):
+    page.locator(f'g.node[data-node-id="{node_id}"] rect.body').click(
+        position={"x": 8, "y": 8}
+    )
+
+
+def test_builder_writes_customer_types_priorities_and_typed_routes(
+    tmp_path, engine_page, monkeypatch
+):
+    page = open_builder(tmp_path, engine_page)
+    page.fill("#run-duration", "120")
+    page.click("#add-type")
+    page.fill("#type-name-t1", "Walk-in")
+    page.click("#add-type")
+    page.fill("#type-name-t2", "Appointment")
+    customers = add_node(
+        page,
+        kind="source",
+        name="Customers",
+        durations={"interarrival": ("exponential", {"mean": 3})},
+    )
+    # The page fills no type mix; each blank probability is listed.
+    assert "Customers: probability of Walk-in needs a value." in problems_text(page)
+    page.fill("#field-mix-t1", "0.6")
+    page.fill("#field-mix-t2", "0.3")
+    assert "type probabilities sum to 0.9, not 1" in problems_text(page)
+    page.fill("#field-mix-t2", "0.4")
+    desk = add_node(page, kind="station", name="Desk", fields={"capacity": 1})
+    page.check("#field-service_by_type")
+    page.select_option("#field-service_time-t1-kind", "exponential")
+    page.fill("#field-service_time-t1-mean", "4")
+    page.select_option("#field-service_time-t2-kind", "constant")
+    page.fill("#field-service_time-t2-value", "2")
+    page.check("#field-priority_on")
+    assert "Desk: rank of Walk-in needs a value." in problems_text(page)
+    page.fill("#field-priority-t1", "2")
+    page.fill("#field-priority-t2", "1")
+    exam = add_node(
+        page,
+        kind="station",
+        name="Exam",
+        fields={"capacity": 2},
+        durations={"service_time": ("uniform", {"low": 3, "high": 6})},
+    )
+    panel_route(page, customers, desk)
+    panel_route(page, desk, exam)
+    panel_route(page, desk, "exit")
+    panel_route(page, exam, "exit")
+    set_edge_types(page, desk, exam, ["t2"])
+    assert "some arrows carry every type and some only named types" in (
+        problems_text(page)
+    )
+    set_edge_types(page, desk, "exit", ["t1"])
+    assert "No problems found" in problems_text(page)
+    page.uncheck("#edge-type-t1")
+    assert "Desk has no route for type Walk-in, which can reach it from Customers." in (
+        problems_text(page)
+    )
+    page.check("#edge-type-t1")
+    code = page.locator("#code").text_content()
+    assert (
+        "customers = model.source(\n"
+        '    name="Customers",\n'
+        "    interarrival=exponential(mean=3),\n"
+        '    types={"Walk-in": 0.6, "Appointment": 0.4},\n'
+        ")\n"
+    ) in code
+    assert (
+        '    service_time={"Walk-in": exponential(mean=4), "Appointment": 2},\n' in code
+    )
+    assert '    priority={"Walk-in": 2, "Appointment": 1},\n' in code
+    assert 'model.route([desk, exam], types=["Appointment"])\n' in code
+    assert 'model.route([desk, model.exit], types=["Walk-in"])\n' in code
+    results = run_script(code, tmp_path, monkeypatch)
+    model = flowsim.Model()
+    arrivals = model.source(
+        name="Customers",
+        interarrival=flowsim.exponential(mean=3),
+        types={"Walk-in": 0.6, "Appointment": 0.4},
+    )
+    front = model.station(
+        name="Desk",
+        capacity=1,
+        service_time={"Walk-in": flowsim.exponential(mean=4), "Appointment": 2},
+        priority={"Walk-in": 2, "Appointment": 1},
+    )
+    room = model.station(
+        name="Exam",
+        capacity=2,
+        service_time=flowsim.uniform(
+            low=3,
+            high=6,
+        ),
+    )
+    model.route([arrivals, front])
+    model.route([room, model.exit])
+    model.route([front, room], types=["Appointment"])
+    model.route([front, model.exit], types=["Walk-in"])
+    assert_same_run(
+        results,
+        model.run(
+            duration=120,
+            seed=42,
+        ),
+    )
+    # Removing a type clears its mix entries and its place on routes.
+    page.click('.remove-type[data-type="t2"]')
+    state = page.evaluate("window.flowsimBuilder.state()")
+    source = next(node for node in state["nodes"] if node["name"] == "Customers")
+    assert source["mix"] == {"t1": 0.6}
+    assert [edge["types"] for edge in state["edges"]] == [None, [], ["t1"], None]
+
+
+def test_builder_writes_schedules_buffers_abandonment_and_failures(
+    tmp_path, engine_page, monkeypatch
+):
+    page = open_builder(tmp_path, engine_page)
+    page.fill("#run-duration", "120")
+    arrivals = add_node(page, kind="source", name="Arrivals")
+    page.check("#field-arrivals-rates")
+    page.fill("#field-rates-0-value", "0.2")
+    page.click("#add-row-rates")
+    assert active_id(page) == "field-rates-1-start"
+    page.fill("#field-rates-1-start", "60")
+    page.fill("#field-rates-1-value", "0.5")
+    clinic = add_node(
+        page,
+        kind="station",
+        name="Clinic",
+        fields={"capacity": 2},
+        durations={"service_time": ("exponential", {"mean": 6})},
+    )
+    page.check("#field-staffing_on")
+    page.fill("#field-staffing-0-value", "1")
+    page.click("#add-row-staffing")
+    page.fill("#field-staffing-1-start", "60")
+    page.fill("#field-staffing-1-value", "3")
+    assert "Clinic: servers on duty cannot exceed capacity 2." in problems_text(page)
+    page.fill("#field-staffing-1-value", "2")
+    # The page never picks a behavior: the missing choice is listed, and the
+    # script writes None so FlowSim's own error names it.
+    assert "Clinic: choose what an off-duty server does with its current job" in (
+        problems_text(page)
+    )
+    assert "    shift_end=None,\n" in page.locator("#code").text_content()
+    assert not page.locator("#field-shift_end-finish").is_checked()
+    assert not page.locator("#field-shift_end-pause").is_checked()
+    page.check("#field-shift_end-pause")
+    page.fill("#field-buffer", "3")
+    assert active_id(page) == "field-buffer"
+    assert "choose what an arrival does when the buffer is full" in problems_text(page)
+    page.check("#field-external_overflow-reject")
+    page.check("#field-abandon_on")
+    assert "Clinic: patience needs a distribution or a constant." in problems_text(page)
+    assert page.locator("#field-abandon_from-waiting_and_outside").is_disabled()
+    page.check("#field-external_overflow-wait")
+    page.check("#field-abandon_from-waiting_and_outside")
+    page.select_option("#field-patience-kind", "exponential")
+    assert page.locator("#field-patience-mean").input_value() == ""
+    page.fill("#field-patience-mean", "5")
+    lab = add_node(
+        page,
+        kind="station",
+        name="Lab",
+        fields={"capacity": 1},
+        durations={"service_time": ("constant", {"value": 1.5})},
+    )
+    page.check("#field-failures_on")
+    assert "Lab: time_to_failure needs a distribution or a constant." in (
+        problems_text(page)
+    )
+    # Choosing a family fills no parameter: the student types each value.
+    page.select_option("#field-repair_time-kind", "constant")
+    assert page.locator("#field-repair_time-value").input_value() == ""
+    assert "Lab: repair_time needs a value." in problems_text(page)
+    assert "    repair_time=None,\n" in page.locator("#code").text_content()
+    assert "Lab: choose when the time to failure counts down" in problems_text(page)
+    page.select_option("#field-time_to_failure-kind", "exponential")
+    page.fill("#field-time_to_failure-mean", "20")
+    page.select_option("#field-repair_time-kind", "constant")
+    page.fill("#field-repair_time-value", "3")
+    page.check("#field-failure_clock-busy")
+    panel_route(page, arrivals, clinic)
+    panel_route(page, clinic, lab)
+    panel_route(page, lab, "exit")
+    assert "No problems found" in problems_text(page)
+    code = page.locator("#code").text_content()
+    assert "    rates=[(0, 0.2), (60, 0.5)],\n" in code
+    assert "    staffing=[(0, 1), (60, 2)],\n" in code
+    results = run_script(code, tmp_path, monkeypatch)
+    model = flowsim.Model()
+    source = model.source(
+        name="Arrivals",
+        rates=[(0, 0.2), (60, 0.5)],
+    )
+    first = model.station(
+        name="Clinic",
+        capacity=2,
+        service_time=flowsim.exponential(mean=6),
+        staffing=[(0, 1), (60, 2)],
+        shift_end="pause",
+        buffer=3,
+        external_overflow="wait",
+        patience=flowsim.exponential(mean=5),
+        abandon_from="waiting_and_outside",
+    )
+    second = model.station(
+        name="Lab",
+        capacity=1,
+        service_time=1.5,
+        time_to_failure=flowsim.exponential(mean=20),
+        repair_time=3,
+        failure_clock="busy",
+    )
+    model.route([source, first, second, model.exit])
+    assert_same_run(
+        results,
+        model.run(
+            duration=120,
+            seed=42,
+        ),
+    )
+    # Clearing the buffer hides the overflow choice and flags the patience rule.
+    select_node(page, clinic)
+    page.fill("#field-buffer", "")
+    assert page.locator("#field-external_overflow-wait").count() == 0
+    assert 'abandon_from "waiting_and_outside" needs a buffer' in problems_text(page)
+
+
+def test_builder_edits_every_station_and_source_argument(tmp_path, engine_page):
+    data = schema()
+    for kind, method in [
+        ("source", flowsim.Model.source),
+        ("station", flowsim.Model.station),
+    ]:
+        names = list(inspect.signature(method).parameters)[1:]
+        assert list(data["supported"][kind]) == names
+    page = open_builder(tmp_path, engine_page)
+    assert page.locator("#excluded-arguments").text_content() == ""
+
+
+def version_one_file():
+    """A model file saved by the 0.3.0 prototype, which had format version 1."""
+    return {
+        "format": "flowsim-builder",
+        "version": 1,
+        "flowsim_version": "0.3.0",
+        "time_unit": "minutes",
+        "run": {"duration": 10, "seed": 42, "drain": False},
+        "nodes": [
+            {"id": "exit", "kind": "exit", "name": "Exit", "x": 740, "y": 230},
+            {
+                "id": "n1",
+                "kind": "source",
+                "name": "Customers",
+                "x": 30,
+                "y": 40,
+                "interarrival": {"name": "constant", "value": 1},
+                "first_arrival": 0,
+                "limit": 3,
+            },
+            {
+                "id": "n2",
+                "kind": "station",
+                "name": "Service",
+                "x": 205,
+                "y": 40,
+                "capacity": 1,
+                "service_time": {"name": "constant", "value": 2},
+            },
+        ],
+        "edges": [
+            {"from": "n1", "to": "n2", "probability": 1},
+            {"from": "n2", "to": "exit", "probability": 1},
+        ],
+    }
+
+
+def test_builder_loads_a_version_one_file(tmp_path, engine_page, monkeypatch):
+    page = open_builder(tmp_path, engine_page)
+    path = tmp_path / "old.json"
+    path.write_text(json.dumps(version_one_file()), encoding="utf-8")
+    page.set_input_files("#load-json", str(path))
+    wait_for_status(page, "Loaded old.json.")
+    assert "No problems found" in problems_text(page)
+    state = page.evaluate("window.flowsimBuilder.state()")
+    assert state["version"] == 2 and state["types"] == []
+    station = next(node for node in state["nodes"] if node["id"] == "n2")
+    # The fields version 1 lacked start off, with every choice unmade.
+    assert (station["buffer"], station["shift_end"], station["abandon_on"]) == (
+        None,
+        "",
+        False,
+    )
+    results = run_script(page.locator("#code").text_content(), tmp_path, monkeypatch)
+    assert_same_run(
+        results,
+        deterministic_queue().run(
+            duration=10,
+            seed=42,
+        ),
+    )
+
+
+def test_builder_refuses_new_fields_the_page_would_not_write(tmp_path, engine_page):
+    page = open_builder(tmp_path, engine_page)
+    two_node_model(page)
+    page.click("#add-type")
+    data = page.evaluate("window.flowsimBuilder.state()")
+    service = next(node for node in data["nodes"] if node["name"] == "Service")
+
+    def changed(change):
+        copy = json.loads(json.dumps(data))
+        change(
+            copy, next(node for node in copy["nodes"] if node["id"] == service["id"])
+        )
+        return copy
+
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: node.update(shift_end="later")),
+        "Service: shift_end has an unknown choice.",
+    )
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: node.update(staffing_on="yes")),
+        "Service: staffing_on must be true or false.",
+    )
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: node.update(priority={"t9": 1})),
+        "names a customer type the file does not have",
+    )
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: whole["edges"][0].update(types=["t9"])),
+        "A route names a customer type the file does not have.",
+    )
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: whole["types"][0].update(id='t1" x="')),
+        "Every customer type id must be",
+    )
+    # Type ids are object keys, so a prototype name is refused too.
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: whole["types"][0].update(id="__proto__")),
+        "Every customer type id must be t followed by digits",
+    )
+    # A version 2 file without a feature's switch is refused, not read as off.
+    refuse_file(
+        page,
+        tmp_path,
+        changed(lambda whole, node: node.pop("staffing_on")),
+        "Service: the file has no staffing_on.",
+    )
+
+
+def test_builder_writes_long_typed_routes_as_ruff_formats_them(
+    tmp_path, engine_page, monkeypatch
+):
+    page = open_builder(tmp_path, engine_page)
+    page.click("#add-type")
+    page.fill("#type-name-t1", "Walk-in customers from the north entrance")
+    source = add_node(
+        page,
+        kind="source",
+        name="Customers arriving at the north entrance",
+        durations={"interarrival": ("constant", {"value": 1})},
+    )
+    page.fill("#field-mix-t1", "1")
+    triage = add_node(page, kind="station", name="Triage station number one")
+    routine = add_node(page, kind="station", name="Routine station alpha wing")
+    special = add_node(page, kind="station", name="Specialist room b")
+    panel_route(page, source, triage)
+    panel_route(page, triage, routine)
+    panel_route(page, triage, special)
+    for target in (routine, special):
+        set_edge_types(page, triage, target, ["t1"])
+        panel_route(page, target, "exit")
+    assert "No problems found" in problems_text(page)
+    code = page.locator("#code").text_content()
+    # Too long for one line, so ruff puts one argument per line.
+    assert (
+        "model.branch(\n"
+        "    triage_station_number_one,\n"
+        "    {routine_station_alpha_wing: 0.5, specialist_room_b: 0.5},\n"
+        '    types=["Walk-in customers from the north entrance"],\n'
+        ")\n"
+    ) in code
+    # run_script fails unless ruff format leaves the script unchanged.
+    run_script(code, tmp_path, monkeypatch)
+
+
+def test_builder_puts_a_branch_on_one_indented_line_when_it_fits(
+    tmp_path, engine_page, monkeypatch
+):
+    page = open_builder(tmp_path, engine_page)
+    source = add_node(
+        page,
+        kind="source",
+        name="In",
+        durations={"interarrival": ("constant", {"value": 1})},
+    )
+    triage = add_node(page, kind="station", name="Triage station number one")
+    routine = add_node(page, kind="station", name="Routine station alpha")
+    special = add_node(page, kind="station", name="Specialist room")
+    panel_route(page, source, triage)
+    panel_route(page, triage, routine)
+    panel_route(page, triage, special)
+    for target in (routine, special):
+        panel_route(page, target, "exit")
+    code = page.locator("#code").text_content()
+    # The flat call is 91 characters, and its arguments fit in 4 + 78 = 82.
+    assert (
+        "model.branch(\n"
+        "    triage_station_number_one, {routine_station_alpha: 0.5, specialist_room: 0.5}\n"
+        ")\n"
+    ) in code
+    run_script(code, tmp_path, monkeypatch)

@@ -273,24 +273,40 @@ can change the model.
 
 ### Drawing a model in the browser
 
-`flowsim.builder()` returns a prototype page for drawing a small service
-network, and `flowsim.builder(path)` also saves it. A notebook displays the page
-in an isolated frame, and a script calls `.open()` to show it in a browser. The
-page works offline. It adds sources, stations, and the exit to a canvas,
-connects them with arrows, and treats a node with two or more outgoing arrows as
-a probabilistic branch whose probabilities must sum to one. A side panel edits
-each node's name, a station's capacity, a source's optional `first_arrival` and
-`limit`, and each duration as a constant or a named distribution with its
-parameters. As the model changes, the page writes a complete script with a copy
-button and a `.py` download, and it saves and loads its own JSON model file.
+`flowsim.builder()` returns a page for drawing a service network, and
+`flowsim.builder(path)` also saves it. A notebook displays the page in an
+isolated frame, and a script calls `.open()` to show it in a browser. The page
+works offline. It adds sources, stations, and the exit to a canvas, connects
+them with arrows, and treats two or more arrows from one node for the same
+customers as a probabilistic branch whose probabilities must sum to one. A side
+panel edits every argument of `Model.source` and `Model.station`, i.e., each
+duration (a constant or a named distribution with its parameters), customer
+types with each source's type mix and the types each arrow carries, arrival-rate
+and staffing schedules, finite buffers, abandonment, server failures, and
+priorities. As the model changes, the page writes a complete script with a copy
+button and a `.py` download, and it saves and loads its own JSON model file
+(including files saved by FlowSim 0.3.0).
 
-The page does not edit customer types, schedules, finite buffers, abandonment,
-failures, priorities, or supply chains. Its forms come from the signatures and
-docstrings of the distribution constructors and of `Model.source`,
-`Model.station`, and `Model.run`. The page checks routes, branch probabilities,
-and single values, and `model.run` in the generated script is the final check.
-The generated script is ordinary FlowSim code, so the excluded features are
-added by editing it, and the page does not read edited code back.
+The page never chooses a behavior argument for the student. A staffing schedule
+needs `shift_end`, a finite buffer needs `external_overflow`, patience needs
+`abandon_from`, and failures need `failure_clock`, and each choice starts
+unselected. Until the student chooses, the Checks list names the missing choice
+and the script writes `None` for it, so running the script raises FlowSim's own
+error. The page also leaves type mixes, ranks, patience, and failure durations
+blank rather than suggesting values. It checks routes (including each customer
+type's routes and the rule that a loop across types may pass only through
+unlimited buffers), probabilities, choices, and single values, and `model.run`
+in the generated script is the final check. Supply chains are not in the page,
+so they are added by editing the generated script, which is ordinary FlowSim
+code (the page does not read edited code back).
+
+From the keyboard, Tab reaches each arrow and node, Enter opens it in the side
+panel (whose Add route control connects nodes), the arrow keys move a node,
+Delete removes it, and Escape clears the selection. Undo and redo cover every
+change (Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y, outside a text field), and Arrange
+places the nodes in the left-to-right layers that `model.diagram()` uses. The
+page's forms come from the signatures and docstrings of the distribution
+constructors and of `Model.source`, `Model.station`, and `Model.run`.
 
 ```python
 from flowsim import builder
