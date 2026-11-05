@@ -117,7 +117,7 @@ def test_dashboard_without_records_holds_no_runs():
     )
     # compare passes keep_records to every scenario's runs, not only some.
     for experiment in comparison.experiments.values():
-        assert all(not run._records_kept for run in experiment.runs)
+        assert all(not run.records_kept for run in experiment.runs)
     for page in [comparison.viewer().html, comparison.experiments["One"].viewer().html]:
         data = embedded_json(page, "dashboard-data")
         assert data["records"] is False

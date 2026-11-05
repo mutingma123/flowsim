@@ -16,8 +16,11 @@ from polars.testing import assert_frame_equal
 import flowsim
 from flowsim import Model, plots, records, validation
 from tests.models import (
+    beer_chain,
     branching_service,
     deterministic_queue,
+    embedded_json,
+    repairing_machine,
     service_network,
     single_station,
     table_rows,
@@ -696,6 +699,64 @@ def test_customer_timeline_spans_feed_the_plot_and_the_viewer():
     )
     assert table_rows(payload["timeline"]) == spans.to_dicts()
     assert list(payload["timeline_colors"]) == [trace.name for trace in figure.data]
+
+
+@pytest.mark.parametrize(
+    ("build", "drawn"),
+    [
+        (deterministic_queue, False),
+        (lambda: single_station(staffing=[(0, 1), (5, 1)], shift_end="pause"), True),
+        (lambda: single_station(buffer=1, external_overflow="reject"), True),
+        (repairing_machine, True),
+    ],
+    ids=["plain", "staffing", "buffer", "failures"],
+)
+def test_a_run_view_draws_server_states_only_where_a_station_can_vary(build, drawn):
+    # A schedule, a finite buffer, or failures change how many servers are
+    # available or blocked; a plain station's servers only process or idle.
+    payload = embedded_json(build().run(duration=10).viewer().html, "result-data")
+    assert ("resources" in payload["figures"]) is drawn
+    assert (payload["stacked_resources"] is not None) is drawn
+
+
+def test_export_metadata_repeats_each_behavior_argument_and_supply_setting(tmp_path):
+    # metadata.json records the arguments each model passed, so every expected
+    # value below is an argument in tests/models.py or in the call here, except
+    # cover, which a constant two-week lead time sets to 2.
+    def metadata(result, name):
+        result.export(tmp_path / name)
+        return json.loads((tmp_path / name / "metadata.json").read_text())
+
+    machine = metadata(repairing_machine().run(duration=10), "machine")["definitions"]
+    assert machine["Machine"]["failure_clock"] == "available"
+    assert machine["Machine"]["failures_enabled"] is True
+    assert machine["Parts"]["failures_enabled"] is False
+    desk = metadata(
+        single_station(buffer=1, external_overflow="reject").run(duration=10),
+        "desk",
+    )["definitions"]["Service"]
+    assert (desk["buffer"], desk["external_overflow"], desk["shift_end"]) == (
+        1,
+        "reject",
+        None,
+    )
+    shift = metadata(
+        single_station(staffing=[(0, 1), (5, 1)], shift_end="pause").run(duration=10),
+        "shift",
+    )["definitions"]["Service"]
+    assert shift["shift_end"] == "pause"
+    supply = metadata(beer_chain().run(duration=12), "chain")["supply"]
+    assert supply["period"] == 1
+    assert supply["stock_points"]["Retailer"] == {
+        "initial": 200,
+        "lead_time": 2,
+        "batch_size": None,
+        "cover": 2,
+        "shortage": "backorder",
+        "forecast_from": "orders",
+        "window": 5,
+        "safety_factor": 0,
+    }
 
 
 def test_station_menus_select_traces_by_station_meta():

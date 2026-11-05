@@ -764,7 +764,7 @@ def dashboard(
             is not None
         ]
         records = all(
-            run._records_kept
+            run.records_kept
             for experiment in experiments.values()
             for run in experiment.runs
         )

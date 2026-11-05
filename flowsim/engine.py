@@ -24,7 +24,7 @@ from flowsim.records import (
     _State,
     _Visit,
 )
-from flowsim.results import Results
+from flowsim.results import Results, SupplySettings
 from flowsim.scheduler import Event, Scheduler
 from flowsim.schedules import next_arrival
 from flowsim.station import _Station
@@ -615,14 +615,14 @@ class _Run:
         self.shipments.append(shipment)
         receiver.pipeline.append((due, shipment))
 
-    def supply_settings(self) -> dict | None:
+    def supply_settings(self) -> SupplySettings | None:
         chain = self.model.supply_chain
         if chain is None:
             return None
-        return {
-            "chain": [chain.demand.name, *[node.name for node in chain.stock_points]],
-            "period": chain.period,
-            "stock_points": {
+        return SupplySettings(
+            chain=(chain.demand.name, *[node.name for node in chain.stock_points]),
+            period=chain.period,
+            stock_points={
                 stock.node.name: {
                     "initial": stock.node.initial,
                     "lead_time": (
@@ -639,15 +639,28 @@ class _Run:
                 }
                 for stock in self.stocks
             },
-            "demand": _spec(chain.demand.per_period),
-            "reconstructible": not any(
+            demand=_spec(chain.demand.per_period),
+            reconstructible=not any(
                 _has_function(_spec(duration))
                 for duration in [
                     chain.demand.per_period,
                     *[stock.node.lead_time for stock in self.stocks],
                 ]
             ),
-        }
+        )
+
+    def resources_vary(self) -> bool:
+        """Return whether a station has a schedule, a finite buffer, or failures.
+
+        Only stations take these arguments, and they decide whether a run view
+        draws server states.
+        """
+        return any(
+            station.node.staffing is not None
+            or station.node.buffer is not None
+            or station.node.time_to_failure is not None
+            for station in self.stations.values()
+        )
 
     def execute(self) -> Results:
         for node in self.model.nodes.values():
@@ -702,6 +715,7 @@ class _Run:
                 for name, node in self.model.nodes.items()
                 if node.kind in {"source", "station", "exit"}
             },
+            resources_vary=self.resources_vary(),
             capacities={
                 name: station.node.capacity for name, station in self.stations.items()
             },

@@ -124,7 +124,7 @@ def test_beer_game_example_keeps_its_stages_and_rules():
         seed=2,
         warmup=supply_chain.WARMUP,
     )
-    assert result._supply["chain"] == ["Consumers", *supply_chain.STAGES]
+    assert list(result.supply.chain) == ["Consumers", *supply_chain.STAGES]
     assert result.stock_points.get_column("periods").to_list() == [84] * 4
     # Each stage starts with two weeks of mean demand, 200 cases.
     first = result.inventory.filter(pl.col("period") == 0)

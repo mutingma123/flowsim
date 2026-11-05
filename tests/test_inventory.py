@@ -128,6 +128,33 @@ def test_stock_point_metrics_use_periods_after_warmup():
     assert row["lost_units"] == 0
 
 
+def test_a_stock_point_without_demand_reports_no_fill_rate():
+    # No unit is ever demanded, so filled / demanded is 0 / 0 and the fill rate
+    # is missing, not 0 or 1. Demand is constant, so the bullwhip ratio is too.
+    model = Model(time_unit="weeks")
+    consumers = model.demand(
+        name="Consumers",
+        per_period=0,
+    )
+    store = model.stock_point(
+        name="Store",
+        initial=10,
+        lead_time=1,
+        shortage="backorder",
+        policy=order_up_to(
+            forecast=moving_average(window=1),
+            safety_factor=0,
+        ),
+        forecast_from="orders",
+    )
+    model.supply(
+        [consumers, store],
+        period=1,
+    )
+    measures = model.run(duration=5).stock_points
+    assert measures.select("fill_rate", "bullwhip_ratio").rows() == [(None, None)]
+
+
 @pytest.mark.parametrize(
     ("shortage", "expected"),
     [

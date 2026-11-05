@@ -7,7 +7,7 @@ import functools
 import html
 import math
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import TYPE_CHECKING
@@ -119,6 +119,65 @@ class Settings:
     time_unit: str
     end_time: float | None
     capacities: Mapping[str, int] | None
+
+
+def _frozen(value: object) -> object:
+    """Return a read-only copy: mappings become mappingproxies, lists tuples."""
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _frozen(item) for key, item in value.items()})
+    if isinstance(value, list | tuple):
+        return tuple(_frozen(item) for item in value)
+    return value
+
+
+def _plain(value: object) -> object:
+    """Undo _frozen for JSON export: mappings become dicts, tuples lists."""
+    if isinstance(value, Mapping):
+        return {key: _plain(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_plain(item) for item in value]
+    return value
+
+
+@dataclass(frozen=True, slots=True)
+class SupplySettings:
+    """The supply-chain settings of a run, which its export records.
+
+    Every field is read-only, including the mapping of each stock point's
+    settings and the distribution records inside it.
+
+    Attributes
+    ----------
+    chain : tuple of str
+        The demand source, then each stock point in chain order.
+    period : float
+        The review period.
+    stock_points : mapping of str to mapping
+        Each stock point's initial stock, lead time (a number, a distribution
+        record, "<function>", or "production"), batch size, cover, shortage
+        rule, forecast source, forecast window, and safety factor.
+    demand : object
+        Consumer demand per period: a number, a distribution record, or
+        "<function>".
+    reconstructible : bool
+        Whether the demand and every lead time can be rebuilt from the export.
+
+    Example
+    -------
+    >>> results.supply.chain
+    ('Consumers', 'Retailer', 'Wholesaler', 'Distributor', 'Factory')
+    """
+
+    chain: tuple[str, ...]
+    period: float
+    stock_points: Mapping[str, Mapping[str, object]]
+    demand: object
+    reconstructible: bool
+
+    def __post_init__(self) -> None:
+        # A frozen dataclass sets its own fields only through object.__setattr__.
+        for name in ["chain", "stock_points", "demand"]:
+            object.__setattr__(self, name, _frozen(getattr(self, name)))
 
 
 # Displays read tables and attributes that already exist. None of them runs a
@@ -236,6 +295,14 @@ class Results:
     stations, summary, stock_points : polars.DataFrame
         Measures per station, for the whole system, and per stock point. A
         table that does not apply to the model is empty.
+    supply : SupplySettings or None
+        The chain order, review period, and stock-point settings, or None for
+        a service network.
+    stock_point_names : list of str
+        The stock points in chain order, empty for a service network.
+    records_kept : bool
+        False after model.experiment(..., keep_records=False) dropped the raw
+        records.
 
     The common next calls are report, plot_queue, plot_wait, plot_utilization,
     plot_inventory, viewer, and export. Call flowsim.explain(name) for a column.
@@ -247,6 +314,7 @@ class Results:
     """
 
     settings: Settings
+    supply: SupplySettings | None
     customers: pl.DataFrame
     visits: pl.DataFrame
     states: pl.DataFrame
@@ -311,22 +379,24 @@ class Results:
         raise missing_attribute(self, name, hints)
 
     @property
-    def _capacities(self) -> Mapping[str, int]:
-        # A run's settings always hold its capacities. Only a comparison's
-        # shared settings hold None.
-        capacities = self.settings.capacities
-        assert capacities is not None
-        return capacities
+    def stock_point_names(self) -> list[str]:
+        """Return the stock points in chain order, empty for a service network."""
+        return [] if self.supply is None else list(self.supply.chain[1:])
+
+    @property
+    def records_kept(self) -> bool:
+        """Return whether the raw record tables are still held."""
+        # _drop_records deletes every raw table, so one stands for all.
+        return "customers" in vars(self)
 
     def _drop_records(self) -> None:
         """Delete the raw record tables and keep the measures."""
         for name in RAW_TABLES:
             delattr(self, name)
-        self._records_kept = False
 
     def _require_records(self, call: str) -> None:
         """Raise a clear error when a call needs raw records that were dropped."""
-        if not self._records_kept:
+        if not self.records_kept:
             raise ValueError(f"results.{call} reads raw records. {_DROPPED}")
 
     def __repr__(self) -> str:
@@ -337,7 +407,7 @@ class Results:
 
     def _display(self) -> tuple[str, list[tuple[str, str]]]:
         settings = self.settings
-        kind = "service network" if self._supply is None else "supply chain"
+        kind = "service network" if self.supply is None else "supply chain"
         rows = [
             ("Run", f"{window_line(settings)}, ends at {settings.end_time:g}"),
             ("Seed", str(settings.seed)),
@@ -347,7 +417,7 @@ class Results:
                 "argument, so replication 1's seed differs from a single run's seed.",
             ),
         ]
-        if self._supply is None:
+        if self.supply is None:
             first = self.summary.row(0, named=True)
             rows.append(
                 (
@@ -381,7 +451,7 @@ class Results:
                 rows.append((label if index == 0 else "", f"{row[name]}: {detail}"))
             if len(frame) > shown:
                 rows.append(("", f"... and {len(frame) - shown} more"))
-        if not self._records_kept:
+        if not self.records_kept:
             kept = [name for name in self._table_names() if name not in RAW_TABLES]
             rows += [
                 ("Tables", ", ".join(kept)),
@@ -392,7 +462,7 @@ class Results:
         rows.append(("Tables", ", ".join(self._table_names())))
         plots = (
             "results.plot_queue(), results.plot_wait(), results.plot_utilization()"
-            if self._supply is None
+            if self.supply is None
             else "results.plot_inventory(), results.plot_orders()"
         )
         rows += [
@@ -411,7 +481,7 @@ class Results:
             "activities",
             "failures",
         ]
-        if self._supply is not None:
+        if self.supply is not None:
             names += ["inventory", "shipments", "stock_points"]
         return names
 
@@ -424,8 +494,9 @@ class Results:
         failures: list[_Failure],
         inventory: list[_Inventory],
         shipments: list[_Shipment],
-        supply: dict | None,
+        supply: SupplySettings | None,
         definitions: dict,
+        resources_vary: bool,
         capacities: dict[str, int],
         duration: float,
         end_time: float,
@@ -453,10 +524,11 @@ class Results:
             end_time=end_time,
             capacities=MappingProxyType(dict(capacities)),
         )
-        # The chain's order, review period, and stock-point settings, or None
-        # for a service network.
-        self._supply = supply
+        self.supply = supply
         self._definitions = definitions
+        # Whether a station has a staffing schedule, a finite buffer, or
+        # failures, which decides whether a run view draws server states.
+        self._resources_vary = resources_vary
         self._closing_states = closing_states
         self._graph = graph.copy()
         # Experiment pools only runs whose model definitions match.
@@ -464,7 +536,6 @@ class Results:
         self.stations = self._station_metrics()
         self.summary = self._system_metrics()
         self.stock_points = self._stock_point_metrics()
-        self._records_kept = True
 
     def _station_areas(self) -> pl.DataFrame:
         """Integrate each station's state counts over [warmup, duration).
@@ -572,11 +643,14 @@ class Results:
         window = self.settings.duration - self.settings.warmup
         # Utilization is server*time / (servers*time), dimensionless.
         installed = pl.col("capacity") * window
+        # Only a comparison's shared settings hold no capacities.
+        capacities = self.settings.capacities
+        assert capacities is not None
         stations = (
             pl.DataFrame(
                 data={
-                    "station": list(self._capacities),
-                    "capacity": list(self._capacities.values()),
+                    "station": list(capacities),
+                    "capacity": list(capacities.values()),
                 },
                 schema={"station": pl.String, "capacity": pl.Int64},
             )
@@ -743,7 +817,7 @@ class Results:
         the variance of orders received, both with the n - 1 divisor, and is
         missing with fewer than two periods or constant demand.
         """
-        names = [] if self._supply is None else self._supply["chain"][1:]
+        names = self.stock_point_names
         window = self.inventory.filter(pl.col("time") >= self.settings.warmup)
         measured = window.group_by("stock_point").agg(
             pl.len().alias("periods"),
@@ -805,7 +879,9 @@ class Results:
         -------
         >>> results.report().filter(pl.col("scope") == "system")
         """
-        stations = list(self._capacities)
+        capacities = self.settings.capacities
+        assert capacities is not None
+        stations = list(capacities)
         stock_points = self.stock_points.get_column("stock_point").to_list()
         rows = []
         for names, column, table, places in [
@@ -820,7 +896,7 @@ class Results:
                     name,
                     stations=bool(stations),
                     stock_points=bool(stock_points),
-                    supply=self._supply is not None,
+                    supply=self.supply is not None,
                 )
                 is None
             ]
@@ -856,8 +932,6 @@ class Results:
             },
         )
 
-    # plots imports METRICS from this module at load time, so each plot
-    # method imports its function when called.
     def plot_queue(self, station: str | None = None) -> Figure:
         """Plot waiting customers and occupied servers over time.
 
@@ -1048,7 +1122,7 @@ class Results:
         >>> results.viewer("output/run.html")
         """
         self._require_records("viewer()")
-        supply = self._supply is not None
+        supply = self.supply is not None
         page = Viewer(
             document=run_page_html(self),
             kind="supply-chain results page" if supply else "results page",
@@ -1091,6 +1165,8 @@ class Results:
             exist_ok=True,
         )
         names = self._table_names()
+        capacities = self.settings.capacities
+        assert capacities is not None
         metadata = {
             "time_unit": self.settings.time_unit,
             "duration": self.settings.duration,
@@ -1098,7 +1174,7 @@ class Results:
             "drain": self.settings.drain,
             "warmup": self.settings.warmup,
             "seed": self.settings.seed,
-            "capacities": dict(self._capacities),
+            "capacities": dict(capacities),
             "definitions": self._definitions,
             # A typed edge lists each type that may take it, with its probability.
             "routes": [
@@ -1116,8 +1192,11 @@ class Results:
             "flow_cohort": "System arrivals at or after warmup with observed exits",
             "censoring": "Missing starts and exits remain null, never zero",
         }
-        if self._supply is not None:
-            metadata["supply"] = self._supply
+        if self.supply is not None:
+            metadata["supply"] = {
+                field.name: _plain(getattr(self.supply, field.name))
+                for field in fields(self.supply)
+            }
             metadata["inventory_window"] = (
                 "Review periods at times in [warmup, duration)"
             )
@@ -1224,12 +1303,12 @@ class Experiment:
             ("Next", "experiment.intervals(metric), experiment.plot()"),
             ("", "experiment.viewer(), experiment.export(folder), flowsim.metrics()"),
         ]
-        if not self.runs[0]._records_kept:
+        if not self.runs[0].records_kept:
             rows.insert(
                 3,
                 ("Records", "Raw records were dropped by keep_records=False."),
             )
-        kind = "service network" if self.runs[0]._supply is None else "supply chain"
+        kind = "service network" if self.runs[0].supply is None else "supply chain"
         return f"Experiment: {len(self.runs)} replications of a {kind}", rows
 
     # The pooled tables are built from the runs on each access, so estimates
@@ -1285,11 +1364,8 @@ class Experiment:
     @property
     def stock_point_names(self) -> list[str]:
         """Return the stock points in chain order, empty for a service network."""
-        supply = self.runs[0]._supply
-        return [] if supply is None else supply["chain"][1:]
+        return self.runs[0].stock_point_names
 
-    # plots imports METRICS from this module at load time, and reporting imports
-    # this module, so each reporting method imports its function when called.
     def intervals(
         self,
         metric: str = "mean_total_wait",

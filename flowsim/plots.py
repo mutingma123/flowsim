@@ -734,7 +734,7 @@ def chain_diagram(model: Model) -> go.Figure:
 def require_stations(result: Results) -> None:
     """Explain that a run without stations has no station plots."""
     if not result.settings.capacities:
-        if result._supply is not None:
+        if result.supply is not None:
             raise ValueError(
                 "This run has no stations. plot_inventory() and plot_orders() "
                 "show its stock points."
@@ -752,7 +752,10 @@ def chosen_stations(result: Results, station: str | None) -> list[str]:
     A run without stations draws empty station figures, as the viewer needs,
     and the public plot methods call require_stations first.
     """
-    names = list(result._capacities)
+    # Only a comparison's shared settings hold no capacities.
+    capacities = result.settings.capacities
+    assert capacities is not None
+    names = list(capacities)
     if station is None:
         return names
     require_stations(result)
@@ -768,7 +771,7 @@ def chosen_stations(result: Results, station: str | None) -> list[str]:
 
 def chosen_stock_points(result: Results, stock_point: str | None) -> list[str]:
     """Return the stock points a plot draws, every one unless one is named."""
-    names = stock_point_names(result)
+    names = result.stock_point_names
     if not names:
         raise ValueError(
             "This run has no stock points. plot_queue(), plot_wait(), "
@@ -928,7 +931,9 @@ def server_layers(result: Results, station: str) -> pl.DataFrame:
     layers sum to the scheduled servers plus any off-duty server that still
     holds a job or is under repair.
     """
-    capacity = result._capacities[station]
+    capacities = result.settings.capacities
+    assert capacities is not None
+    capacity = capacities[station]
     # The recorded count, not the staffing schedule, since a run that stops at
     # closing does not execute a shift change scheduled exactly then.
     times = result.states.filter(pl.col("station") == station).select(
@@ -1181,12 +1186,7 @@ def service_payload(result: Results) -> dict:
         "waits": page_figure(plot_wait(result)),
         "utilization": page_figure(plot_utilization(result)),
     }
-    if any(
-        definition["staffing"] is not None
-        or definition["buffer"] is not None
-        or definition["failures_enabled"]
-        for definition in result._definitions.values()
-    ):
+    if result._resources_vary:
         figures["resources"] = page_figure(plot_resources(result))
         # The page's switch swaps this figure into the resources chart.
         stacked = page_figure(
@@ -1233,10 +1233,6 @@ def service_payload(result: Results) -> dict:
 STAGE_COLORS = [BLUE, ORANGE, GREEN, PURPLE, "#E69F00", "#56B4E9"]
 
 
-def stock_point_names(result: Results) -> list[str]:
-    return [] if result._supply is None else result._supply["chain"][1:]
-
-
 def warmup_line(figure: go.Figure, result: Results) -> None:
     if result.settings.warmup > 0:
         figure.add_vline(
@@ -1250,7 +1246,7 @@ def plot_orders(result: Results) -> go.Figure:
     """Plot consumer demand and every stage's orders, which shows the bullwhip."""
     names = chosen_stock_points(result, None)
     # chosen_stock_points raises for a run without a supply chain.
-    supply = result._supply
+    supply = result.supply
     assert supply is not None
     figure = go.Figure()
     retailer = result.inventory.filter(pl.col("stock_point") == names[0])
@@ -1258,7 +1254,7 @@ def plot_orders(result: Results) -> go.Figure:
         go.Scatter(
             x=trace_values(retailer.get_column("time")),
             y=trace_values(retailer.get_column("demand")),
-            name=label(supply["chain"][0]),
+            name=label(supply.chain[0]),
             mode="lines",
             line={"color": GRAY, "width": 2, "dash": "dot"},
         )
@@ -1352,13 +1348,13 @@ def supply_payload(result: Results) -> dict:
         figures["queues"] = page_figure(queues)
         figures["utilization"] = page_figure(plot_utilization(result))
     # plot_orders above raises for a run without a supply chain.
-    supply = result._supply
+    supply = result.supply
     assert supply is not None
     return {
         "kind": "supply",
         "figures": figures,
-        "chain": supply["chain"],
-        "period": supply["period"],
+        "chain": list(supply.chain),
+        "period": supply.period,
         # Record tables go column by column, as in service_payload.
         "stock_points": result.stock_points.to_dict(as_series=False),
         "inventory": result.inventory.to_dict(as_series=False),
@@ -1385,9 +1381,7 @@ def supply_payload(result: Results) -> dict:
 def run_payload(result: Results) -> dict:
     """Return one run's data for a run view, the service or supply-chain one."""
     return (
-        supply_payload(result)
-        if result._supply is not None
-        else service_payload(result)
+        supply_payload(result) if result.supply is not None else service_payload(result)
     )
 
 
