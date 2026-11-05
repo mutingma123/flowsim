@@ -13,7 +13,6 @@ import numpy as np
 import polars as pl
 import pytest
 
-import flowsim
 from flowsim import Model, compare, moving_average, order_up_to
 from tests.models import beer_chain, deterministic_queue
 
@@ -700,11 +699,6 @@ def test_negative_sampled_demand_stops_the_run():
         period=1,
     )
     assert "Demand at 'Consumers'" in build_error(lambda: model.run(duration=3))
-
-
-def test_policies_are_part_of_the_public_package():
-    assert flowsim.order_up_to is order_up_to
-    assert flowsim.moving_average is moving_average
 
 
 def test_constant_lead_time_cover_counts_whole_periods():

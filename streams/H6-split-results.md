@@ -72,8 +72,10 @@ rename map entry cannot explain, and any test removal not named in this brief. A
 
 - baseline: 502 passed @ b24044e
 - gates (logs/2026-11-05-1241-gate-*-H6.log): check EXIT=0, 502 passed in 188.9 s; examples
-  EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 105 over 80 decisions, 11.9 per
-  1,000 statements (from 109); bench against the baseline commit under the same load: run
+  EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 105 over 80 decisions as
+  first printed, but that scan ran before catalog.py and records.py were tracked, so it left
+  them out; re-measured at fbfc410 with them, mass is 106 over 81 decisions, 11.7 per 1,000
+  statements (from 109); bench against the baseline commit under the same load: run
   0.898, compare 0.932, dashboard 1.004, memory within 1.006.
 - mutation (logs/2026-11-05-1249-mutation-H6-*.log): station 430/480, engine 738/826, results
   metrics 745/807.

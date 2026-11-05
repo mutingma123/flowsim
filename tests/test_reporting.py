@@ -1320,18 +1320,6 @@ def test_dropped_records_keep_every_measure_and_explain_the_loss(tmp_path):
         )
 
 
-def test_compare_passes_keep_records_to_each_scenario():
-    comparison = compare(
-        scenarios={"One": service_network(1), "Two": service_network(2)},
-        duration=120,
-        replications=2,
-        keep_records=False,
-    )
-    for experiment in comparison.experiments.values():
-        assert all(not run._records_kept for run in experiment.runs)
-    assert comparison.differences().height > 0
-
-
 def test_comparison_dashboard_holds_every_metric_baseline_and_run(tmp_path):
     # One server gives a mean station wait of 1 and two servers give 0 in
     # every replication, so each paired difference is -1 from One and +1
@@ -1402,6 +1390,9 @@ def test_dashboard_without_records_holds_no_runs():
         replications=3,
         keep_records=False,
     )
+    # compare passes keep_records to every scenario's runs, not only some.
+    for experiment in comparison.experiments.values():
+        assert all(not run._records_kept for run in experiment.runs)
     for page in [comparison.viewer().html, comparison.experiments["One"].viewer().html]:
         data = embedded_json(page, "dashboard-data")
         assert data["records"] is False

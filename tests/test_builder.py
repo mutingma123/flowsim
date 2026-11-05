@@ -66,7 +66,7 @@ def test_schema_reads_model_arguments_from_their_signatures():
     ]:
         names = [item["name"] for item in data[kind]]
         assert names == [name for name in inspect.signature(method).parameters][1:]
-        assert set(data["supported"][kind]) <= set(names)
+        assert list(data["supported"][kind]) == names
     station = {item["name"]: item for item in data["station"]}
     assert station["shift_end"]["choices"] == ["finish", "pause"]
     assert station["service_time"]["kind"] == "duration"
@@ -97,12 +97,6 @@ def test_builder_page_embeds_the_schema_and_requests_nothing():
     assert not any(re.search(r"https?:", script) for script in scripts)
     assert 'sandbox="allow-scripts allow-downloads"' in page._repr_html_()
     assert "model builder page" in repr(page)
-
-
-def test_builder_with_a_path_writes_the_page(tmp_path):
-    path = tmp_path / "pages" / "builder.html"
-    page = flowsim.builder(path)
-    assert path.read_text(encoding="utf-8") == page.html
 
 
 # Browser helpers. Each drives the page through its controls.
@@ -574,6 +568,7 @@ def test_builder_builds_and_edits_a_model_from_the_keyboard(
     tmp_path, engine_page, monkeypatch
 ):
     page = open_builder(tmp_path, engine_page)
+    assert page.locator("#excluded-arguments").text_content() == ""
     page.fill("#run-duration", "10")
     # Adding a node moves focus to its name, and the live region announces it.
     page.focus("#add-source")
@@ -1189,18 +1184,6 @@ def test_builder_writes_schedules_buffers_abandonment_and_failures(
     page.fill("#field-buffer", "")
     assert page.locator("#field-external_overflow-wait").count() == 0
     assert 'abandon_from "waiting_and_outside" needs a buffer' in problems_text(page)
-
-
-def test_builder_edits_every_station_and_source_argument(tmp_path, engine_page):
-    data = schema()
-    for kind, method in [
-        ("source", flowsim.Model.source),
-        ("station", flowsim.Model.station),
-    ]:
-        names = list(inspect.signature(method).parameters)[1:]
-        assert list(data["supported"][kind]) == names
-    page = open_builder(tmp_path, engine_page)
-    assert page.locator("#excluded-arguments").text_content() == ""
 
 
 def version_one_file():

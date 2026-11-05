@@ -1,6 +1,6 @@
 # H4 Remove tests that cannot fail or duplicate a named test
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H6 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -55,4 +55,32 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 502 passed @ fbfc410
+- first gates (logs/2026-11-05-1301-gate-*-H4.log): all passed, 497 tests.
+- mutation (logs/2026-11-05-1308-mutation-H4-*.log, before the review fix, which only adds an
+  assertion): station 430/480, engine 738/826, results metrics 745/807, unchanged, so the
+  removed tests killed no mutant that no other test kills.
+- after the review fix (logs/2026-11-05-1318-gate-*-H4.log): check EXIT=0, 497 passed in
+  183.4 s; examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 106 (11.7);
+  bench against the baseline commit: run 0.957, compare 0.887, dashboard 0.988.
+
 ## Result
+
+Removed five test ids: test_inventory::test_policies_are_part_of_the_public_package (cannot
+fail), test_builder::test_builder_with_a_path_writes_the_page (every builder browser test
+writes the page through open_builder), test_reporting::test_compare_passes_keep_records_to_
+each_scenario, and test_builder::test_builder_edits_every_station_and_source_argument in both
+engines. Kept assertions: test_schema_reads_model_arguments_from_their_signatures now asserts
+the supported argument list equals the signature (was a subset), and
+test_builder_builds_and_edits_a_model_from_the_keyboard asserts #excluded-arguments is empty.
+
+Codex adversarial review (streams/reviews/H4-codex.md), one medium finding, accepted after
+checking reporting.py:766: the dashboard's records flag is all(...) over every run, so the
+remaining dashboard test proved only that some run dropped its records, not every run in every
+scenario. The removed test's per-run loop now sits in
+test_dashboard_without_records_holds_no_runs, so no check is lost and the removed test id
+stays removed. The evidence in the scan called that test a full duplicate; that was half
+right, and this finding corrects it.
+
+Also recorded here: H6's mass line was corrected (its scan left out the then-untracked
+catalog.py and records.py; the true value is 106).
