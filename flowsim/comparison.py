@@ -26,7 +26,6 @@ from flowsim.results import (
     display_html,
     display_text,
     missing_attribute,
-    moved_settings,
     window_line,
 )
 from flowsim.viewer import Viewer
@@ -85,11 +84,7 @@ class Comparison:
             raise AttributeError(
                 f"{type(self).__name__!r} object has no attribute {name!r}"
             )
-        hints = moved_settings(
-            owner="comparison",
-            names=["duration", "warmup", "drain", "time_unit"],
-        )
-        raise missing_attribute(self, name, hints)
+        raise missing_attribute(self, name, {})
 
     def __repr__(self) -> str:
         return display_text(*self._display())

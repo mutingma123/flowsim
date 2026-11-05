@@ -245,11 +245,6 @@ def missing_attribute(
     return AttributeError(message)
 
 
-def moved_settings(owner: str, names: list[str]) -> dict[str, str]:
-    """Hint that each named setting now lives on the owner's settings."""
-    return {name: f"The setting moved: use {owner}.settings.{name}." for name in names}
-
-
 # A run's raw record tables, which model.experiment(..., keep_records=False)
 # drops once the run's measures are computed.
 RAW_TABLES = (
@@ -326,17 +321,6 @@ class Results:
     summary: pl.DataFrame
     stock_points: pl.DataFrame
 
-    # Old plot names, by their current names on a single run.
-    _RENAMED = {
-        "queue_plot": "plot_queue",
-        "wait_plot": "plot_wait",
-        "utilization_plot": "plot_utilization",
-        "resource_plot": "plot_resources",
-        "customer_plot": "plot_customer",
-        "inventory_plot": "plot_inventory",
-        "orders_plot": "plot_orders",
-    }
-
     def __getattr__(self, name: str) -> object:
         # Called only for a missing attribute. Underscore names, which pickle,
         # copy, and IPython probe, get the plain error with no hint.
@@ -344,25 +328,7 @@ class Results:
             raise AttributeError(
                 f"{type(self).__name__!r} object has no attribute {name!r}"
             )
-        hints = moved_settings(
-            owner="results",
-            names=[
-                "duration",
-                "warmup",
-                "drain",
-                "seed",
-                "time_unit",
-                "end_time",
-                "capacities",
-            ],
-        )
-        hints.update(
-            {
-                old: f"The method was renamed: use results.{new}()."
-                for old, new in self._RENAMED.items()
-            }
-        )
-        hints.update({table: _DROPPED for table in RAW_TABLES})
+        hints = {table: _DROPPED for table in RAW_TABLES}
         hints["intervals"] = (
             "A single run has no replications. Run model.experiment(...) for intervals."
         )
@@ -1271,10 +1237,7 @@ class Experiment:
             raise AttributeError(
                 f"{type(self).__name__!r} object has no attribute {name!r}"
             )
-        hints = moved_settings(
-            owner="experiment",
-            names=["duration", "warmup", "drain", "time_unit"],
-        )
+        hints = {}
         hints["differences"] = (
             "An experiment is one scenario. Use flowsim.compare({name: model, "
             "...}, duration) to compare scenarios with paired differences."

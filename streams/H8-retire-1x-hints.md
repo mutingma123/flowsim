@@ -1,6 +1,6 @@
 # H8 Retire the 1.x rename and moved-setting hints
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H13 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -57,4 +57,33 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 516 passed @ 5bcc600. Run on the owner's ruling (2026-11-05) after the loop's stop
+  rule ended it: H8 breaks the API, so it belongs in 2.0.
+- edit by a Sonnet subagent to an exact spec, reviewed by hand. Messages now:
+  results.queue_plot gives "'Results' object has no attribute 'queue_plot'.", results.duration
+  gives "... Close matches: stations.", results.sumary gives "... Close matches: summary.".
+- first gates (logs/2026-11-05-1620-gate-*-H8.log, .code-health/gate-H8-first.txt): all passed,
+  516 tests; mass 104, from a B007 finding (the label loop variable left unused in
+  test_experiment_and_comparison_hints), fixed by looping over the owners.
+- mutation (logs/2026-11-05-1620-mutation-H8-*.log): station 428 killed plus 2 timeouts
+  (430/480), engine 763/834, results metrics 742/803, unchanged. Not rerun after the fix
+  (a loop variable and README text).
+- after the fixes (logs/2026-11-05-1633-gate-*-H8.log): check EXIT=0, 516 passed in 193.4 s;
+  examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2% (98.212%); mass 103 (11.2);
+  bench run 0.878, compare 0.940, dashboard 0.927.
+- `grep -nE '_RENAMED|moved_settings' flowsim` prints nothing.
+
 ## Result
+
+moved_settings and Results._RENAMED are gone, with their branches in Results, Experiment, and
+Comparison __getattr__. A missing attribute keeps missing_attribute's close matches, the
+dropped-records message, and the single-run intervals, differences, and plot hints and the
+experiment differences hint. test_display.py lost only the assertions about the removed hints
+(the seven renamed plot names and the moved settings); no test was removed. The 2.0 migration
+line is in README.md's "Changes in 2.0" section, committed with the release.
+
+Codex adversarial review (streams/reviews/H8-codex.md), which also read the prepared release,
+one medium finding, accepted after checking: the README's claim that other moved names still
+import from flowsim.results was false (Column, INTERVAL_SCHEMA, interval_estimate, and 18
+more no longer do). The README now lists all 21 names by their new module, each confirmed to
+import from it; moved_settings, the 22nd, is deleted.

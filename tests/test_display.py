@@ -111,28 +111,6 @@ def test_results_hints():
     for name in ["intervals", "differences", "plot"]:
         with pytest.raises(AttributeError, match="model.experiment"):
             getattr(results, name)
-    for old, new in [
-        ("queue_plot", "plot_queue"),
-        ("wait_plot", "plot_wait"),
-        ("utilization_plot", "plot_utilization"),
-        ("resource_plot", "plot_resources"),
-        ("customer_plot", "plot_customer"),
-        ("inventory_plot", "plot_inventory"),
-        ("orders_plot", "plot_orders"),
-    ]:
-        with pytest.raises(AttributeError, match=new):
-            getattr(results, old)
-    for name in [
-        "duration",
-        "warmup",
-        "drain",
-        "seed",
-        "time_unit",
-        "end_time",
-        "capacities",
-    ]:
-        with pytest.raises(AttributeError, match=f"results.settings.{name}"):
-            getattr(results, name)
     with pytest.raises(AttributeError, match="Close matches: summary"):
         results.sumary
 
@@ -160,10 +138,7 @@ def test_experiment_and_comparison_hints():
         duration=20,
         replications=3,
     )
-    for owner, label in [(experiment, "experiment"), (comparison, "comparison")]:
-        for name in ["duration", "warmup", "drain", "time_unit"]:
-            with pytest.raises(AttributeError, match=f"{label}.settings.{name}"):
-                getattr(owner, name)
+    for owner in [experiment, comparison]:
         with pytest.raises(AttributeError, match="Close matches: summary"):
             owner.sumary
         assert getattr(owner, "__deepcopy__", None) is None
