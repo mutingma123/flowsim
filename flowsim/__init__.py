@@ -1,7 +1,7 @@
 """Define, simulate, and explore small service networks and supply chains."""
 
 # reporting imports the version while this package loads, so it comes first.
-__version__ = "1.0.0"
+__version__ = "2.0.0"
 
 from flowsim.builder_page import builder
 from flowsim.catalog import explain, metrics

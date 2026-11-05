@@ -104,6 +104,7 @@ serve scripts and terminals, HTML summaries serve notebooks, and
   - [Event order](#event-order)
 - [Setup for OM 522](#setup-for-om-522)
   - [Tasks](#tasks)
+- [Changes in 2.0](#changes-in-20)
 - [Videos](#videos)
 - [For maintainers](#for-maintainers)
 - [Scope and limits](#scope-and-limits)
@@ -1991,6 +1992,49 @@ The lock file covers Linux, Windows, Intel Macs, and Apple Silicon Macs, and
 execution has been verified on Linux with Python 3.13. The package installs into
 other Python environments as the distribution `classroom-flowsim` (imported as
 `flowsim`), and it depends on NumPy, Polars, NetworkX, Plotly, and SciPy.
+
+## Changes in 2.0
+
+FlowSim 2.0 changes no simulation result, so every example prints and exports
+the same numbers as 1.0. Code written for 1.0 needs the following changes.
+
+- An export refuses a folder that holds files with FlowSim's export names but
+  no FlowSim `metadata.json`, and the error names those files. Export into a
+  new folder or into one that an earlier FlowSim export wrote.
+- The metric and column catalog moved from `flowsim.results` to
+  `flowsim.catalog`, the record schemas to `flowsim.records`, and the export
+  and interval helpers to `flowsim.reporting`. These names no longer import
+  from `flowsim.results`:
+  - from `flowsim.catalog`: `Column`, `COLUMNS`, `EXCLUDED`, `Inapplicable`,
+    `Metric`, `metric_error`, `metrics`, `explain`, `RUN_LEVEL_METRICS`,
+    `Scope`, `scope_name`, and `unknown` (`metrics` and `explain` also import
+    from `flowsim`);
+  - from `flowsim.records`: `INTERVAL_SCHEMA`, `interval_frame`, `Phase`,
+    `STATION_HEADLINE`, and `SUPPLIER`;
+  - from `flowsim.reporting`: `confidence_level`, `EXPORT_FILE_NAMES`,
+    `interval_estimate`, and `write_text`.
+
+  A few moved names (e.g., `METRICS` and `STATION_SCHEMA`) still import from
+  `flowsim.results` because it uses them, but import them from their new module.
+- `fit_all` and `best_fit` refuse fitting data that is text or booleans (1.0
+  read `"2.5"` as 2.5 and `True` as 1). An error other than a failed fit (e.g.,
+  a `TypeError` from a bug) now propagates instead of listing the family as
+  failed.
+- A run's supply-chain settings are public. `results.supply` (a frozen
+  `SupplySettings`, or None for a service network), `results.stock_point_names`,
+  and `results.records_kept` replace the private `_supply` and `_records_kept`,
+  and `results.settings.capacities` replaces `_capacities`. For example,
+  `results._supply["chain"]` becomes `results.supply.chain`, which is a tuple.
+- FlowSim 1.0 pointed names from earlier versions to their current ones, and
+  2.0 gives the ordinary missing-attribute error with any close matches
+  instead. A run's plot methods are `plot_queue`, `plot_wait`, and so on
+  (earlier versions named them `queue_plot`, `wait_plot`, and so on), and
+  settings such as `duration` are read from `.settings` (e.g.,
+  `results.settings.duration`).
+- Saved pages hold each record table column by column and store chart data as
+  compact arrays, so the service-day comparison page is about 14 MB instead of
+  23 MB. Code that reads a page's embedded JSON reads each table as a mapping
+  from column name to values.
 
 ## Videos
 
