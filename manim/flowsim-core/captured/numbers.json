@@ -87,14 +87,14 @@
       "file": "comparison_means.png",
       "size": [
         1888,
-        1230
+        1548
       ]
     },
     "comparison_differences": {
       "file": "comparison_differences.png",
       "size": [
         1888,
-        834
+        1030
       ]
     }
   },
@@ -156,7 +156,7 @@
     "summary.csv",
     "visits.csv"
   ],
-  "viewer_bytes": 4861754,
+  "viewer_bytes": 4862307,
   "replications": {
     "service_runs": [
       2.43697746671219,
