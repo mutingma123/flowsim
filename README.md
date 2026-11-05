@@ -940,6 +940,26 @@ attribute holds the document, which the Marimo lesson passes to `mo.iframe`.
 Each saved viewer embeds its Plotly library and data, so it opens directly in a
 browser without internet access.
 
+FlowSim writes a file only when a call asks for one. `save(path)`,
+`export(folder)`, and the path argument of `viewer()` and `builder()` write
+where the path says, and `open()` on a saved page writes it again at its saved
+path. `open()` on a page that was never saved writes one file per kind of page
+in `output/` under the current working directory, as the table below shows, and
+each call replaces that file and prints its path. FlowSim writes no other
+files, since a run's records live in memory and inside each saved page. Thus,
+when every path a script names lies under `output/` (as in every example in
+this README), deleting `output/` removes everything FlowSim's Python calls
+wrote. The CSV, JSON, and `.py` downloads that a page offers are written by the
+browser, which saves them to its own download folder.
+
+| Page | File that `open()` writes before any save |
+| --- | --- |
+| `results.viewer()` for a service network | `output/flowsim-results.html` |
+| `results.viewer()` for a supply chain | `output/flowsim-supply-chain.html` |
+| `experiment.viewer()` | `output/flowsim-experiment.html` |
+| `comparison.viewer()` | `output/flowsim-comparison.html` |
+| `flowsim.builder()` | `output/flowsim-builder.html` |
+
 `results.export("output/my-run")` writes seven CSV files and one metadata file.
 Exports keep missing starts and exits as empty CSV fields and never replace an
 unknown outcome with zero. An export also removes FlowSim files that an earlier

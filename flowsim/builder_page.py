@@ -297,6 +297,7 @@ def builder(path: str | Path | None = None) -> Viewer:
     page = Viewer(
         document=builder_html(),
         kind="model builder page",
+        name="builder",
         height=1100,
     )
     if path is not None:

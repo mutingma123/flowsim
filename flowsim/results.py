@@ -2710,12 +2710,14 @@ class Results:
             page = Viewer(
                 document=viewer_html(self),
                 kind="results page",
+                name="results",
                 height=900,
             )
         else:
             page = Viewer(
                 document=supply_viewer_html(self),
                 kind="supply-chain results page",
+                name="supply-chain",
                 height=900,
             )
         if path is not None:
@@ -3106,6 +3108,7 @@ class Experiment:
         viewer = Viewer(
             document=document,
             kind="replication page",
+            name="experiment",
             height=800,
         )
         if path is not None:

@@ -386,6 +386,7 @@ class Comparison:
         viewer = Viewer(
             document=document,
             kind="comparison page",
+            name="comparison",
             height=1100,
         )
         if path is not None:

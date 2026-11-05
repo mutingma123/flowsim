@@ -17,6 +17,7 @@ from flowsim import (
     Comparison,
     Experiment,
     Model,
+    builder,
     compare,
     exponential,
     moving_average,
@@ -436,23 +437,78 @@ def test_viewer_displays_in_an_isolated_frame_and_prints_briefly():
     assert "replication page" in repr(comparison.experiments["One"].viewer())
 
 
-def test_viewer_open_writes_a_file_and_opens_its_address(tmp_path, monkeypatch):
+def test_unsaved_pages_open_from_one_file_per_kind_in_output(
+    tmp_path, monkeypatch, capsys
+):
     opened = []
     monkeypatch.setattr(
         target=webbrowser,
         name="open",
         value=opened.append,
     )
-    viewer = deterministic_queue().run(duration=7).viewer()
-    temporary = viewer.open()
-    try:
-        assert temporary.read_text(encoding="utf-8") == viewer.html
-        assert opened == [temporary.resolve().as_uri()]
-    finally:
-        Path(temporary).unlink()
-    saved = viewer.save(tmp_path / "page.html")
-    assert viewer.open() == saved
-    assert opened[-1] == saved.resolve().as_uri()
+    monkeypatch.chdir(tmp_path)
+    one = deterministic_queue().run(duration=7)
+    comparison = compare(
+        scenarios={
+            "One": deterministic_queue(),
+            "Two": deterministic_queue(capacity=2),
+        },
+        duration=7,
+        replications=2,
+    )
+    pages = {
+        "results": one.viewer(),
+        "supply-chain": beer_chain().run(duration=8).viewer(),
+        "experiment": comparison.experiments["One"].viewer(),
+        "comparison": comparison.viewer(),
+        "builder": builder(),
+    }
+    for name, viewer in pages.items():
+        path = viewer.open()
+        assert path == tmp_path / "output" / f"flowsim-{name}.html"
+        assert path.read_text(encoding="utf-8") == viewer.html
+        assert opened[-1] == path.resolve().as_uri()
+        assert capsys.readouterr().out == f"Opening {path.resolve()}\n"
+    # A second unsaved page of the same kind replaces the first file.
+    longer = deterministic_queue().run(duration=9).viewer()
+    assert longer.html != pages["results"].html
+    assert longer.open() == tmp_path / "output" / "flowsim-results.html"
+    assert Path("output/flowsim-results.html").read_text(encoding="utf-8") == (
+        longer.html
+    )
+    # The returned path still names the file after the directory changes.
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    returned = pages["comparison"].open()
+    monkeypatch.chdir(tmp_path)
+    assert returned == elsewhere / "output" / "flowsim-comparison.html"
+    assert returned.read_text(encoding="utf-8") == pages["comparison"].html
+    capsys.readouterr()
+    returned.unlink()
+    (elsewhere / "output").rmdir()
+    elsewhere.rmdir()
+    # These five files are the only ones the Python calls wrote.
+    assert sorted(path.name for path in tmp_path.rglob("*") if path.is_file()) == (
+        sorted(f"flowsim-{name}.html" for name in pages)
+    )
+    saved = one.viewer().save(tmp_path / "saved" / "page.html")
+    assert saved == tmp_path / "saved" / "page.html"
+
+
+def test_saved_page_opens_from_its_saved_path(tmp_path, monkeypatch, capsys):
+    opened = []
+    monkeypatch.setattr(
+        target=webbrowser,
+        name="open",
+        value=opened.append,
+    )
+    monkeypatch.chdir(tmp_path)
+    viewer = deterministic_queue().run(duration=7).viewer("pages/run.html")
+    assert viewer.open() == Path("pages/run.html")
+    assert opened == [Path("pages/run.html").resolve().as_uri()]
+    assert capsys.readouterr().out == f"Opening {Path('pages/run.html').resolve()}\n"
+    assert not Path("output").exists()
 
 
 def test_headline_columns_come_first_in_tables_and_exports(service_run, tmp_path):

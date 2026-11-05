@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import html
-import tempfile
 import webbrowser
 from pathlib import Path
+
+# An unsaved page's open() writes output/flowsim-<name>.html under the working
+# directory, so every file FlowSim writes on its own sits in one folder.
+OPEN_FOLDER = Path("output")
 
 
 class Viewer:
@@ -21,9 +24,11 @@ class Viewer:
     >>> viewer.save("output/viewer.html")
     """
 
-    def __init__(self, document: str, kind: str, height: int):
+    def __init__(self, document: str, kind: str, name: str, height: int):
         self._document = document
         self._kind = kind
+        # The file stem an unsaved page's open() writes, e.g., "results".
+        self._name = name
         # The frame height in a notebook, in pixels. The page scrolls inside it.
         self._height = height
         self._path: Path | None = None
@@ -65,30 +70,35 @@ class Viewer:
     def open(self) -> Path:
         """Show the page in the default web browser and return its file.
 
-        The page is written to its saved path, or to a new temporary file when
-        it has not been saved.
+        A saved page is written again to its saved path. A page that was never
+        saved is written to output/flowsim-<kind>.html under the current working
+        directory (e.g., output/flowsim-results.html), which each call replaces.
+        The method prints the file's path.
 
         Returns
         -------
         pathlib.Path
-            The file shown.
+            The file shown, as an absolute path for a page that was never saved.
 
         Example
         -------
         >>> viewer.open()
         """
         if self._path is None:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
+            # Resolved once, so the returned path survives a later change of
+            # working directory.
+            path = (OPEN_FOLDER / f"flowsim-{self._name}.html").resolve()
+            path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            path.write_text(
+                data=self._document,
                 encoding="utf-8",
-                prefix="flowsim-",
-                suffix=".html",
-                delete=False,
-            ) as file:
-                file.write(self._document)
-            path = Path(file.name)
+            )
         else:
             path = self.save(self._path)
+        print(f"Opening {path.resolve()}")
         webbrowser.open(path.resolve().as_uri())
         return path
 
