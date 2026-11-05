@@ -15,7 +15,7 @@ from tests.models import (
 
 
 @pytest.mark.parametrize("drain", [False, True])
-def test_offline_viewer_controls_and_download(tmp_path, offline_page, drain):
+def test_offline_viewer_controls_and_download(tmp_path, engine_page, drain):
     result = service_network().run(
         duration=480,
         seed=42,
@@ -23,7 +23,7 @@ def test_offline_viewer_controls_and_download(tmp_path, offline_page, drain):
     )
     viewer = tmp_path / "viewer.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     assert page.locator(".js-plotly-plot").count() == 4
@@ -72,14 +72,14 @@ def test_offline_viewer_controls_and_download(tmp_path, offline_page, drain):
     assert downloaded.get_column("exit_time").null_count() == remaining
 
 
-def test_viewer_shows_customer_types(tmp_path, offline_page):
+def test_viewer_shows_customer_types(tmp_path, engine_page):
     result = job_shop().run(
         duration=20,
         drain=True,
     )
     viewer = tmp_path / "viewer.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     headers = page.locator("#customers thead th").all_text_contents()
@@ -93,7 +93,7 @@ def test_viewer_shows_customer_types(tmp_path, offline_page):
     )
 
 
-def test_viewer_shows_abandoned_customers(tmp_path, offline_page):
+def test_viewer_shows_abandoned_customers(tmp_path, engine_page):
     # Arrivals at 0, 1, and 2 need 5 each, and customer 2 leaves at 1 + 3 = 4.
     model = Model()
     callers = model.source(
@@ -116,7 +116,7 @@ def test_viewer_shows_abandoned_customers(tmp_path, offline_page):
     )
     viewer = tmp_path / "viewer.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     assert "Abandoned customers: 1" in page.locator("#notice").inner_text()
@@ -129,7 +129,7 @@ def test_viewer_shows_abandoned_customers(tmp_path, offline_page):
     assert "left without service at 4" in page.locator("#customer-details").inner_text()
 
 
-def test_empty_run_downloads_use_export_columns(tmp_path, offline_page):
+def test_empty_run_downloads_use_export_columns(tmp_path, engine_page):
     model = Model()
     arrivals = model.source(
         name="Customers",
@@ -146,7 +146,7 @@ def test_empty_run_downloads_use_export_columns(tmp_path, offline_page):
     assert result.customers.height == result.visits.height == 0
     viewer = tmp_path / "viewer.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     for name in ["customers", "visits"]:
         with page.expect_download() as download_info:
@@ -157,7 +157,7 @@ def test_empty_run_downloads_use_export_columns(tmp_path, offline_page):
         assert header == [f'"{column}"' for column in getattr(result, name).columns]
 
 
-def test_scenario_report_renders_intervals_offline(tmp_path, offline_page):
+def test_scenario_report_renders_intervals_offline(tmp_path, engine_page):
     comparison = compare(
         scenarios={
             "One server": deterministic_queue(),
@@ -169,7 +169,7 @@ def test_scenario_report_renders_intervals_offline(tmp_path, offline_page):
     )
     viewer = tmp_path / "comparison.html"
     comparison.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     # Intervals, paired differences, and each replication's value.
@@ -185,7 +185,7 @@ def test_scenario_report_renders_intervals_offline(tmp_path, offline_page):
     ) == [-1]
 
 
-def test_experiment_report_renders_one_metric_offline(tmp_path, offline_page):
+def test_experiment_report_renders_one_metric_offline(tmp_path, engine_page):
     # One server gives a mean station wait of 1 in every replication.
     experiment = deterministic_queue().experiment(
         duration=7,
@@ -196,7 +196,7 @@ def test_experiment_report_renders_one_metric_offline(tmp_path, offline_page):
         viewer,
         metric="mean_wait",
     )
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("document.querySelectorAll('.axis-note').length === 1")
     # Intervals and each replication's value, with no differences.
     assert page.locator(".js-plotly-plot").count() == 2
@@ -217,7 +217,7 @@ def test_experiment_report_renders_one_metric_offline(tmp_path, offline_page):
     ]
 
 
-def test_scenario_report_moves_axis_titles_below_narrow_charts(tmp_path, offline_page):
+def test_scenario_report_moves_axis_titles_below_narrow_charts(tmp_path, engine_page):
     comparison = compare(
         scenarios={
             "One server": deterministic_queue(),
@@ -229,7 +229,7 @@ def test_scenario_report_moves_axis_titles_below_narrow_charts(tmp_path, offline
     )
     viewer = tmp_path / "comparison.html"
     comparison.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("document.querySelectorAll('.axis-note').length === 2")
     title = "document.getElementById('scenario-means').layout.xaxis.title.text"
     note = "document.querySelector('.axis-note')"
@@ -246,7 +246,7 @@ def test_scenario_report_moves_axis_titles_below_narrow_charts(tmp_path, offline
 
 
 def test_extended_viewer_shows_resource_states_rejections_and_paused_work(
-    tmp_path, offline_page
+    tmp_path, engine_page
 ):
     result = combined_line().run(
         duration=180,
@@ -256,7 +256,7 @@ def test_extended_viewer_shows_resource_states_rejections_and_paused_work(
     assert paused
     viewer = tmp_path / "extensions.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     assert page.locator(".js-plotly-plot").count() == 5
@@ -369,7 +369,7 @@ def test_viewer_line_choices_persist_across_stations_and_the_stacked_switch(
 
 
 def test_supply_viewer_switches_stock_points_and_downloads_records(
-    tmp_path, offline_page
+    tmp_path, engine_page
 ):
     result = beer_chain().run(
         duration=30,
@@ -378,7 +378,7 @@ def test_supply_viewer_switches_stock_points_and_downloads_records(
     )
     viewer = tmp_path / "supply.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     assert page.locator(".js-plotly-plot").count() == 2
@@ -417,7 +417,7 @@ def test_supply_viewer_switches_stock_points_and_downloads_records(
         assert downloaded.columns == getattr(result, name).columns
 
 
-def test_supply_viewer_shows_production_stations(tmp_path, offline_page):
+def test_supply_viewer_shows_production_stations(tmp_path, engine_page):
     # The factory orders 50 each week in jobs of 16, 16, 16, and 2, and every
     # job is cut and then packed.
     model = Model(time_unit="weeks")
@@ -456,7 +456,7 @@ def test_supply_viewer_shows_production_stations(tmp_path, offline_page):
     result = model.run(duration=4)
     viewer = tmp_path / "production.html"
     result.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     page.wait_for_function("window.flowsimReady !== undefined")
     page.evaluate("window.flowsimReady")
     assert page.locator(".js-plotly-plot").count() == 4
@@ -491,8 +491,12 @@ def click_point(page, index):
     point = page.locator("#replication-values .point").nth(index)
     point.scroll_into_view_if_needed()
     box = point.bounding_box()
-    page.mouse.move(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
-    page.mouse.click(box["x"] + box["width"] / 2, box["y"] + box["height"] / 2)
+    # A point at the axis minimum has its centre on the drag layer's edge, which
+    # Firefox treats as outside it, so aim at the marker's upper half.
+    x = box["x"] + box["width"] / 2
+    y = box["y"] + box["height"] / 4
+    page.mouse.move(x, y)
+    page.mouse.click(x, y)
 
 
 def ready(page, name="flowsimReady"):
@@ -586,14 +590,14 @@ def test_comparison_dashboard_switches_metrics_and_opens_runs(tmp_path, engine_p
     assert page.locator("#run-root > *").count() == 0
 
 
-def test_a_replication_point_opens_its_run(tmp_path, offline_page):
+def test_a_replication_point_opens_its_run(tmp_path, engine_page):
     experiment = deterministic_queue().experiment(
         duration=7,
         replications=3,
     )
     viewer = tmp_path / "experiment.html"
     experiment.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     ready(page)
     click_point(page, 2)
     ready(page, "flowsimRunReady")
@@ -602,7 +606,7 @@ def test_a_replication_point_opens_its_run(tmp_path, offline_page):
     assert page.input_value("#run-choice") == "2"
 
 
-def test_dashboard_without_records_shows_the_overview_only(tmp_path, offline_page):
+def test_dashboard_without_records_shows_the_overview_only(tmp_path, engine_page):
     experiment = deterministic_queue().experiment(
         duration=7,
         replications=3,
@@ -610,7 +614,7 @@ def test_dashboard_without_records_shows_the_overview_only(tmp_path, offline_pag
     )
     viewer = tmp_path / "experiment.html"
     experiment.viewer(viewer)
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     ready(page)
     assert "keep_records=True" in page.locator("#replication-reading").inner_text()
     assert page.locator("#run-toolbar").is_hidden()
@@ -618,14 +622,14 @@ def test_dashboard_without_records_shows_the_overview_only(tmp_path, offline_pag
     assert page.locator("#run-panel").is_hidden()
 
 
-def test_supply_chain_dashboard_opens_the_supply_chain_run_view(tmp_path, offline_page):
+def test_supply_chain_dashboard_opens_the_supply_chain_run_view(tmp_path, engine_page):
     experiment = beer_chain().experiment(
         duration=20,
         replications=2,
     )
     viewer = tmp_path / "chain.html"
     experiment.viewer(viewer, metric="fill_rate", stock_point="Factory")
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     ready(page)
     assert page.locator("#location-label").inner_text() == "Stock point"
     assert page.locator("#location-choice option:checked").inner_text() == "Factory"
@@ -646,7 +650,7 @@ def test_supply_chain_dashboard_opens_the_supply_chain_run_view(tmp_path, offlin
 
 
 def test_a_point_opens_its_own_scenario_where_another_lacks_the_station(
-    tmp_path, offline_page
+    tmp_path, engine_page
 ):
     comparison = compare(
         scenarios={
@@ -660,7 +664,7 @@ def test_a_point_opens_its_own_scenario_where_another_lacks_the_station(
     # A named station must exist in every scenario, so the page's menu
     # chooses Check.
     comparison.viewer(viewer, metric="mean_wait")
-    page = offline_page(viewer)
+    page = engine_page(viewer)
     ready(page)
     page.select_option("#location-choice", label="Check")
     page.wait_for_function(

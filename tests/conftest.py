@@ -65,7 +65,7 @@ def _browser_for():
             driver.stop()
 
 
-def offline_pages(browser_for, engine: str):
+def saved_pages(browser_for, engine: str):
     """Yield a function that opens saved pages in a fresh context of one engine.
 
     Every network request is denied, and any page error fails the test.
@@ -93,13 +93,7 @@ def offline_pages(browser_for, engine: str):
     assert not errors, errors
 
 
-@pytest.fixture
-def offline_page(_browser_for):
-    """Open saved pages in headless Chrome with every network request denied."""
-    yield from offline_pages(_browser_for, "chromium")
-
-
 @pytest.fixture(params=ENGINES)
 def engine_page(request, _browser_for):
     """Open saved pages in each browser engine, one test run per engine."""
-    yield from offline_pages(_browser_for, request.param)
+    yield from saved_pages(_browser_for, request.param)
