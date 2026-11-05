@@ -30,8 +30,9 @@ distributions in `flowsim/distributions.py`, and notebook interfaces in
   decision.
 - Library tests never import from `examples/`. Shared models live in
   `tests/models.py`, and one-off hand-calculation models may be built inline.
-  Only `tests/test_examples.py` and `tests/test_readme.py` use `examples/`,
-  to check that the examples and every README Python block still run.
+  Only `tests/test_examples.py` uses `examples/`, to check that the examples
+  still run. `tests/test_readme.py` runs every README Python block and checks
+  that none imports from `examples/`.
 - Run `pixi run check` and `pixi run examples` after behavioral changes.
 - The package must import and run without Marimo. Marimo is an example client.
 - The version lives only in `flowsim/__init__.py`.
