@@ -1,6 +1,6 @@
 # H9 Builder schema without eval
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H7 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -54,4 +54,29 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 499 passed @ ba79be6
+- edit by a Sonnet subagent to an exact spec, reviewed by hand. The new test fails without the
+  _call_keywords change (ValueError: malformed node or string) and passes with it.
+- schema(): JSON of flowsim.builder_page.schema() (sorted keys) is byte-equal before and after.
+  `grep -n 'eval(' flowsim/builder_page.py` prints only the literal_eval line.
+- gates (logs/2026-11-05-1355-gate-*-H9.log): check EXIT=0, 500 passed in 259.2 s (mutation
+  sample running alongside); examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%;
+  mass 103 (11.3); bench against the baseline commit: run 0.795, compare 0.900, dashboard 1.003.
+- mutation (logs/2026-11-05-1355-mutation-H9-*.log, run because the chunk changes
+  tests/test_builder.py): station 430/480, engine 738/826, results metrics 745/807, unchanged.
+
 ## Result
+
+builder_page reads every annotation through inspect.signature(..., eval_str=True); _annotation
+and both eval calls are gone. _call_keywords keeps a docstring example's literal keywords and
+skips a **mapping or any value literal_eval rejects (ValueError or TypeError), so a NumPy call
+in an example no longer makes schema() or builder() raise. New test:
+test_a_docstring_example_skips_a_keyword_that_is_not_a_literal. A skipped keyword leaves its
+field blank, as an absent one does, so the page still prefills nothing it did not before.
+
+Codex adversarial review (streams/reviews/H9-codex.md): approve, no findings. Its one next step,
+the byte-equal schema comparison, was already run (above).
+
+Metrics: no metric moved beyond noise (mass 103 as at H7; the run bench ratio reflects H1's
+engine change, since this chunk touches no simulation code), so this chunk counts as one that
+improves no metric for the loop's stop rule.

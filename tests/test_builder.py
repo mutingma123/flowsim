@@ -58,6 +58,21 @@ def test_schema_lists_every_duration_constructor_with_its_parameters():
     assert (k["kind"], k["minimum"], k["exclusive"]) == ("integer", 1, False)
 
 
+def test_a_docstring_example_skips_a_keyword_that_is_not_a_literal(monkeypatch):
+    # The page can write only literal values, so a NumPy call in an example is
+    # skipped and the literal keyword is kept, instead of raising.
+    monkeypatch.setattr(
+        target=flowsim.distributions.exponential,
+        name="__doc__",
+        value="Exponential.\n\nExample\n-------\n>>> exponential(mean=2, scale=np.float64(1))\n",
+    )
+    (entry,) = [
+        item for item in schema()["distributions"] if item["name"] == "exponential"
+    ]
+    assert entry["example"] == {"mean": 2}
+    assert "<!doctype html>" in flowsim.builder().html.lower()
+
+
 def test_schema_reads_model_arguments_from_their_signatures():
     data = schema()
     for kind, method in [

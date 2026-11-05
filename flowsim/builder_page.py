@@ -86,14 +86,6 @@ def _bounds(description: str) -> dict:
     return {}
 
 
-def _annotation(function: types.FunctionType, parameter: inspect.Parameter) -> object:
-    """Evaluate one parameter's annotation, which modules store as a string."""
-    annotation = parameter.annotation
-    if isinstance(annotation, str):
-        annotation = eval(annotation, function.__globals__)
-    return annotation
-
-
 def _members(annotation: object) -> list[object]:
     """Return the members of a union, or the annotation alone."""
     if typing.get_origin(annotation) in (typing.Union, types.UnionType):
@@ -128,10 +120,12 @@ def _parameters(
     """Describe each parameter: name, kind, default, choices, and bounds."""
     described = _parameter_docs(function)
     result = []
-    for name, parameter in inspect.signature(function).parameters.items():
+    for name, parameter in inspect.signature(
+        function, eval_str=True
+    ).parameters.items():
         if name in skip:
             continue
-        kind, choices = _kind(_annotation(function, parameter))
+        kind, choices = _kind(parameter.annotation)
         required = parameter.default is inspect.Parameter.empty
         description = described.get(name, "")
         entry = {
@@ -160,14 +154,22 @@ def _example(function: types.FunctionType) -> dict:
 
 
 def _call_keywords(source: str) -> dict | None:
-    """Return the literal keyword arguments of one call expression."""
+    """Return the literal keyword arguments of one call expression, skipping the rest."""
     try:
         node = ast.parse(source, mode="eval").body
     except SyntaxError:
         return None
     if not isinstance(node, ast.Call):
         return None
-    return {item.arg: ast.literal_eval(item.value) for item in node.keywords}
+    keywords = {}
+    for item in node.keywords:
+        if item.arg is None:
+            continue
+        try:
+            keywords[item.arg] = ast.literal_eval(item.value)
+        except (ValueError, TypeError):
+            continue
+    return keywords
 
 
 def _duration_constructors() -> list[types.FunctionType]:
@@ -183,19 +185,17 @@ def _duration_constructors() -> list[types.FunctionType]:
             continue
         if function.__module__ != _distributions.__name__ or name in COUNT_FAMILIES:
             continue
-        returned = eval(
-            inspect.signature(function).return_annotation,
-            function.__globals__,
-        )
+        signature = inspect.signature(function, eval_str=True)
+        returned = signature.return_annotation
         if not (
             inspect.isclass(returned)
             and issubclass(returned, _distributions.Distribution)
         ):
             continue
-        parameters = inspect.signature(function).parameters.values()
+        parameters = signature.parameters.values()
         if all(
             parameter.kind is inspect.Parameter.KEYWORD_ONLY
-            and _annotation(function, parameter) in (float, int)
+            and parameter.annotation in (float, int)
             for parameter in parameters
         ):
             found.append(function)
