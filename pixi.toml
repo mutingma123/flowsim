@@ -26,6 +26,11 @@ supply-chain = "python -m examples.supply_chain"
 examples = { depends-on = ["demo", "exercise", "extensions", "operations", "supply-chain", "lesson-check"] }
 # Render a video in manim/ with its own environment (see manim/README.md).
 manim-render = { cmd = "pixi run --manifest-path manim/pixi.toml render" }
+# Time a long run, the service-day comparison, and its dashboard (benchmarks/bench.py).
+bench = { cmd = "python benchmarks/bench.py --repeat 3", env = { POLARS_MAX_THREADS = "4", OMP_NUM_THREADS = "4" } }
+bench-run = { cmd = "python benchmarks/bench.py --case run", env = { POLARS_MAX_THREADS = "4", OMP_NUM_THREADS = "4" } }
+bench-compare = { cmd = "python benchmarks/bench.py --case compare", env = { POLARS_MAX_THREADS = "4", OMP_NUM_THREADS = "4" } }
+bench-dashboard = { cmd = "python benchmarks/bench.py --case dashboard", env = { POLARS_MAX_THREADS = "4", OMP_NUM_THREADS = "4" } }
 
 [dependencies]
 python = ">=3.12,<3.14"
@@ -45,3 +50,34 @@ nodejs = ">=20"
 [pypi-dependencies]
 classroom-flowsim = { path = ".", editable = true }
 playwright = ">=1.64.0, <2"
+
+# Measurement tools for the code-health review. memray has no Windows build.
+# The pins below hold this environment to the default environment's versions,
+# so coverage and mutation runs test the same stack students use.
+[feature.code-health.dependencies]
+coverage = ">=7.17.2,<8"
+pytest-cov = ">=7.1.0,<8"
+mutmut = ">=3.8.0,<4"
+python = "==3.13.16"
+polars = "==2.0.0"
+polars-runtime-32 = "==2.0.0"
+narwhals = "==2.27.1"
+pytest = "==9.1.1"
+pluggy = "==1.6.0"
+ruff = "==0.17.0"
+setuptools = "==84.0.0"
+
+[feature.code-health.pypi-dependencies]
+playwright = "==1.64.0"
+
+[feature.code-health.target.linux-64.dependencies]
+memray = ">=1.20.0,<2"
+
+[feature.code-health.target.osx-arm64.dependencies]
+memray = ">=1.20.0,<2"
+
+[feature.code-health.target.osx-64.dependencies]
+memray = ">=1.20.0,<2"
+
+[environments]
+code-health = { features = ["code-health"] }

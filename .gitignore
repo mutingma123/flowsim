@@ -19,3 +19,6 @@ logs/
 
 # Review-loop run folders (briefs, frozen renders, reviewer reports).
 review-loop/
+
+# Code-health measurements and snapshots.
+.code-health/
