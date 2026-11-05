@@ -177,6 +177,50 @@ def test_a_family_whose_fit_fails_is_reported(monkeypatch):
         )
 
 
+def test_a_programming_error_in_a_family_fit_is_raised(monkeypatch):
+    # Only errors a fit raises on bad data mark a family as failed, so a bug
+    # such as a wrong argument type is not hidden in the failed list.
+    def broken(*args, **kwargs):
+        raise TypeError("unexpected keyword")
+
+    monkeypatch.setattr(st.expon, "fit", broken)
+    with pytest.raises(TypeError, match="unexpected keyword"):
+        fit_all(
+            data=[1.0, 2.0, 4.0, 7.0],
+            families=["exponential", "uniform"],
+        )
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        ["1.5", "2.5", "4"],
+        [True, False, True],
+        pl.Series(["1.5", "2.5", "4"]),
+        pl.Series([True, False, True]),
+        [1.5, "2.5", 4.0],
+        [True, 2.0, 4.0],
+        (1.5, np.True_, 4.0),
+    ],
+)
+def test_text_and_boolean_fitting_data_is_refused(data):
+    with pytest.raises(ValueError, match="not text or booleans"):
+        fit_all(data)
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        [[1.0, 2.0], [3.0]],
+        [1.0, {"a": 1}, 3.0],
+    ],
+)
+def test_fitting_data_that_is_not_a_flat_sequence_of_numbers_is_refused(data):
+    # NumPy cannot form an array from ragged lists, and a dict is not a number.
+    with pytest.raises(ValueError, match="must be a sequence of numbers"):
+        fit_all(data)
+
+
 def test_zero_values_warn_and_fail_the_families_that_start_at_zero():
     with pytest.warns(
         UserWarning,

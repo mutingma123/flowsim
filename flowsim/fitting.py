@@ -629,9 +629,17 @@ def fit_all(
             )
         except _NoFit as error:
             failed.append((name, str(error)))
-        # SciPy's optimizers raise several error types on a bad start, and a
-        # failed fit means only that this family is not ranked.
-        except Exception as error:
+        # SciPy's optimizers raise these on a bad start or on data a family
+        # cannot fit, and a failed fit means only that this family is not
+        # ranked. Any other error is a bug, so it propagates.
+        except (
+            ValueError,
+            RuntimeError,
+            FloatingPointError,
+            OverflowError,
+            ZeroDivisionError,
+            np.linalg.LinAlgError,
+        ) as error:
             failed.append((name, f"{type(error).__name__}: {error}"))
     if not fits:
         reasons = "; ".join(f"{family}: {reason}" for family, reason in failed)
@@ -823,7 +831,28 @@ def _fit_count(values: np.ndarray, family: str) -> Fit:
 
 def _data(data, discrete: bool) -> np.ndarray:
     try:
-        values = np.array(data, dtype=float)
+        raw = np.asarray(data)
+    except (TypeError, ValueError):
+        raise ValueError("Fitting data must be a sequence of numbers.") from None
+    # float() would read "2.5" as 2.5 and True as 1, so text and booleans are
+    # refused by kind. NumPy reads [True, 2] as integers, so a list or tuple is
+    # also checked item by item, as is an object array (e.g., one holding None,
+    # which still reaches the finite-number check below).
+    if raw.dtype.kind == "O":
+        items = raw.ravel()
+    elif isinstance(data, (list, tuple)):
+        items = data
+    else:
+        items = ()
+    if raw.dtype.kind not in "iufO" or any(
+        isinstance(item, (str, bytes, bool, np.bool_)) for item in items
+    ):
+        raise ValueError(
+            "Fitting data must be a sequence of numbers, not text or booleans "
+            f"(got {raw.dtype} values)."
+        )
+    try:
+        values = raw.astype(float)
     except (TypeError, ValueError):
         raise ValueError("Fitting data must be a sequence of numbers.") from None
     if values.ndim != 1 or values.size < 2:
