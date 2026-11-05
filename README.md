@@ -285,7 +285,7 @@ types with each source's type mix and the types each arrow carries, arrival-rate
 and staffing schedules, finite buffers, abandonment, server failures, and
 priorities. As the model changes, the page writes a complete script with a copy
 button and a `.py` download, and it saves and loads its own JSON model file
-(including files saved by FlowSim 0.3.0).
+(including files saved by earlier versions of the page).
 
 The page never chooses a behavior argument for the student. A staffing schedule
 needs `shift_end`, a finite buffer needs `external_overflow`, patience needs
@@ -307,6 +307,8 @@ change (Ctrl+Z, and Ctrl+Shift+Z or Ctrl+Y, outside a text field), and Arrange
 places the nodes in the left-to-right layers that `model.diagram()` uses. The
 page's forms come from the signatures and docstrings of the distribution
 constructors and of `Model.source`, `Model.station`, and `Model.run`.
+`pixi run demo` saves the page as `output/builder.html`, and the block below
+saves it from any script or notebook.
 
 ```python
 from flowsim import builder
@@ -844,11 +846,11 @@ time, and a download of the jobs table.
 
 Three calls cover the analysis of a model. `model.run(duration, seed=42, *,
 warmup=0, drain=False)` simulates once and returns `Results`.
-`model.experiment(duration, replications=20, seed=42, *, warmup=0, drain=False)`
-runs independent replications and returns an `Experiment`, and
-`flowsim.compare(scenarios, duration, *, replications=20, seed=42, warmup=0,
-drain=False)` runs named models with matched replication seeds and returns a
-`Comparison`.
+`model.experiment(duration, replications=20, seed=42, *, warmup=0, drain=False,
+keep_records=True)` runs independent replications and returns an `Experiment`,
+and `flowsim.compare(scenarios, duration, *, replications=20, seed=42, warmup=0,
+drain=False, keep_records=True)` runs named models with matched replication
+seeds and returns a `Comparison` (see Replications for `keep_records`).
 
 Experiments and comparisons share one reporting interface, whose signature is
 `intervals(metric="mean_total_wait", *, station=None, stock_point=None,
@@ -1274,8 +1276,9 @@ weeks after they are sent, and each stage carries one standard deviation of
 safety stock. `bullwhip_study` runs 20 replications of 104 weeks with a 20-week
 warm-up and compares forecasting from orders with sharing consumer demand and
 with a ten-week moving average. `pixi run supply-chain` writes the comparison
-report, the per-replication stock-point table, and the first replication's
-records and viewer under `output/supply_chain/`. The video
+report, the per-replication stock-point table, the first replication's records
+and viewer, and the chain's diagram (`network.html`, drawn by
+`model.diagram()`) under `output/supply_chain/`. The video
 [FlowSim: the bullwhip effect](https://youtu.be/SbkiDw28vhI) walks through this
 study.
 
@@ -1283,7 +1286,8 @@ study.
 that makes 120, 150, or 200 cases per week in jobs of 25 cases, with a target
 that covers two weeks of forecast demand, and a fifth scenario brews 150 cases
 per week with three weeks of cover. `pixi run supply-chain` writes its report
-under `output/supply_chain/capacity/`.
+and the diagram of the chain with the brewhouse below the factory under
+`output/supply_chain/capacity/`.
 
 In the saved bullwhip study, forecasting from orders gives a retailer bullwhip
 ratio of 2.25 (95% CI 2.18 to 2.32), above the closed-form 2.12 because safety
@@ -1913,7 +1917,7 @@ The repository defines these tasks:
 
 | Task | What it does |
 | --- | --- |
-| `pixi run demo` | Runs the hand-calculated queue, two-stage network, and triage network in `examples/models.py`, then compares one, two, and three servers across 12 replications. Writes viewers, flowcharts, and CSV files under `output/`. |
+| `pixi run demo` | Runs the hand-calculated queue, two-stage network, and triage network in `examples/models.py`, then compares one, two, and three servers across 12 replications. Writes viewers, flowcharts, CSV files, and the model builder page (`builder.html`) under `output/`. |
 | `pixi run exercise` | Runs the worked staffing exercise (see Classroom exercise) and writes reports under `output/service-day/`. |
 | `pixi run extensions` | Runs peak demand with a lunch break, a buffered production line, a machine with repairs, and a combined line from `examples/extensions.py`, writing them under `output/extensions/`. |
 | `pixi run operations` | Runs the saturated machining line and the truck cross-dock in `examples/operations.py`, comparing buffer plans and dock capacity across 20 replications, and writes them under `output/operations/` (see Operations examples). |
@@ -1921,7 +1925,7 @@ The repository defines these tasks:
 | `pixi run notebook` | Opens the Marimo lesson, which adds controls for staffing, shift and failure-clock rules, and customer timelines. |
 | `pixi run notebook-export` | Executes the lesson and saves `output/lesson.html`. |
 | `pixi run examples` | Runs the five tasks above that execute examples, and fails if Marimo replaced a lesson output with a size warning. |
-| `pixi run check` | Runs the tests, lint, format check, and notebook check. |
+| `pixi run check` | Runs the tests, lint, format check, notebook check, and the Pyright type check of `flowsim/`. |
 | `pixi run format` | Formats the code with ruff. |
 
 The lock file covers Linux, Windows, Intel Macs, and Apple Silicon Macs, and
@@ -1946,7 +1950,9 @@ what the video shows.
 The videos were recorded before FlowSim had named distributions, so their code
 calls NumPy directly (e.g., `lambda rng: rng.exponential(scale=3)`) where this
 README uses a named distribution such as `exponential(mean=3)`. The two forms
-draw the same values (see Durations and distributions).
+draw the same values (see Durations and distributions), and the code the videos
+show still runs. The videos also predate the model builder (see Drawing a model
+in the browser).
 
 ## For maintainers
 
@@ -1965,10 +1971,13 @@ the examples still run. `tests/test_readme.py` runs each Python block in this
 README on its own, in a fresh namespace, and checks that the generated metric
 and column tables match the catalog. After a catalog change, the failing test
 prints the new table to paste between the markers. The browser tests block
-external requests and exercise the saved viewers' controls and downloads. They
-run when Playwright is installed and Chrome or Chromium is on the executable
-search path, and they report a skip otherwise. Setting `FLOWSIM_CHROME` to a
-browser executable selects it, and a path that does not exist fails the tests.
+external requests and exercise the saved viewers' controls and downloads and
+the builder page's controls (`tests/test_builder.py`). The viewer tests run in
+Chrome or Chromium, and the builder tests run in both Chrome or Chromium and
+Playwright's Firefox (installed with `pixi run playwright install firefox`).
+The tests find Chrome or Chromium on the executable search path, and a test
+whose browser is missing reports a skip. Setting `FLOWSIM_CHROME` to a browser
+executable selects it, and a path that does not exist fails the tests.
 
 ## Scope and limits
 
@@ -1985,11 +1994,13 @@ order-up-to policy and a moving-average forecast. Only the top stage can
 produce at stations, its jobs cannot share those stations with customers from
 sources, and its cover is stated instead of estimated.
 
-Runs keep every customer, visit, and state record in memory, which suits
-classroom-scale examples. There is no streaming or aggregate-only mode, and the
-viewer embeds raw records, so it can become large for long runs (approximately
-5 MB for one 480-minute day of the first model). Numeric outputs target
-classroom tables and plots, and LaTeX numeric exports are not included. FlowSim
-schedules events with its own scheduler (`flowsim/scheduler.py`) instead of a
-simulation library, and that scheduler was checked against SimPy 4.1.2 at
-commit `32e96d3`. The package is released under the MIT license.
+A run keeps every customer, visit, and state record in memory until it ends,
+which suits classroom-scale examples. An experiment or comparison with
+`keep_records=False` then keeps only each run's measures, so it holds one run's
+records at a time (see Replications), but there is no streaming mode for one
+long run. A single run's viewer embeds its raw records, so it can become large
+for long runs (approximately 5 MB for one 480-minute day of the first model).
+Numeric outputs target classroom tables and plots, and LaTeX numeric exports
+are not included. FlowSim schedules events with its own scheduler
+(`flowsim/scheduler.py`) instead of a simulation library, and that scheduler was
+checked against SimPy 4.1.2 at commit `32e96d3`. The package is released under the MIT license.

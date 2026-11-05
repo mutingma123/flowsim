@@ -2,7 +2,7 @@
   "sources": {
     "manim/supply-chain/snippets/bullwhip.py": "d143233af667605415351827484937e3506c66bcafc329f3c63daad45134e549",
     "manim/supply-chain/snippets/capacity.py": "bacb02600c8eec30c6557f71812c7158fbfa70b1b912fb950c32b758d67eb349",
-    "examples/supply_chain.py": "e6eca3e6cc4f6f025c973daf3c6bbb36fbf0ddb9f875e10e76445ac2d7e3c4b2"
+    "examples/supply_chain.py": "70640d1861bc18c07090ae16be8c2dcf3f9f47e498b3bdd61d6cdbdc21769f22"
   },
   "images": {
     "ratios": {

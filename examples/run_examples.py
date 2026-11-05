@@ -1,4 +1,8 @@
-"""Run examples, check their accounting, and export browser viewers."""
+"""Run examples, check their accounting, and export browser viewers.
+
+The last step also saves the model builder page, which draws a service network
+in the browser and writes its FlowSim script.
+"""
 
 from pathlib import Path
 
@@ -9,6 +13,7 @@ from examples.models import (
     deterministic_queue,
     service_network,
 )
+from flowsim import builder
 
 
 def main():
@@ -53,10 +58,13 @@ def main():
 
     comparison = []
     for capacity in [1, 2, 3]:
+        # Only the intervals are needed, so each run's raw records are dropped
+        # once its measures are computed.
         trials = service_network(service_capacity=capacity).experiment(
             duration=480,
             replications=12,
             seed=42,
+            keep_records=False,
         )
         interval = trials.intervals(
             "mean_wait",
@@ -78,7 +86,9 @@ def main():
             "upper",
         )
     )
+    builder(output / "builder.html")
     print(f"\nViewers and raw records were written to {output.resolve()}.")
+    print(f"The model builder page is {(output / 'builder.html').resolve()}.")
 
 
 if __name__ == "__main__":

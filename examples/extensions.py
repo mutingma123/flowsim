@@ -1,6 +1,7 @@
 """Scheduled service and production models with explicit behavioral choices."""
 
 from pathlib import Path
+from typing import Literal
 
 from flowsim import Model, exponential, uniform
 
@@ -13,7 +14,7 @@ DURATIONS = {
 }
 
 
-def peak_service(shift_end: str = "finish") -> Model:
+def peak_service(shift_end: Literal["finish", "pause"] = "finish") -> Model:
     model = Model()
     arrivals = model.source(
         name="Customers",
@@ -56,7 +57,9 @@ def buffered_line(buffer: int = 0) -> Model:
     return model
 
 
-def repairing_machine(failure_clock: str = "available") -> Model:
+def repairing_machine(
+    failure_clock: Literal["available", "busy"] = "available",
+) -> Model:
     model = Model()
     arrivals = model.source(
         name="Parts",
@@ -81,8 +84,8 @@ def repairing_machine(failure_clock: str = "available") -> Model:
 
 
 def combined_line(
-    shift_end: str = "finish",
-    failure_clock: str = "available",
+    shift_end: Literal["finish", "pause"] = "finish",
+    failure_clock: Literal["available", "busy"] = "available",
 ) -> Model:
     model = Model()
     arrivals = model.source(

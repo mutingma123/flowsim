@@ -1,6 +1,7 @@
 """A four-stage beer-game supply chain, the bullwhip effect, and factory capacity."""
 
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 
@@ -14,7 +15,7 @@ BATCH = 25  # cases per brewhouse job
 
 
 def beer_game(
-    forecast_from: str = "orders",
+    forecast_from: Literal["orders", "end_demand"] = "orders",
     window: int = 5,
     lead_time: int = 2,
     brew_rate: float | None = None,
@@ -220,6 +221,16 @@ def main():
         path=output / "capacity" / "comparison.html",
         metric="fill_rate",
         stock_point="Factory",
+    )
+    # Each chain drawn left to right with its lead times, and the brewhouse
+    # below the factory that brews at 150 cases per week.
+    beer_game().diagram().write_html(
+        file=output / "network.html",
+        include_plotlyjs=True,
+    )
+    beer_game(brew_rate=150).diagram().write_html(
+        file=output / "capacity" / "network.html",
+        include_plotlyjs=True,
     )
     columns = ["scenario", "mean", "lower", "upper"]
     for stage in ["Factory", "Distributor"]:
