@@ -287,6 +287,14 @@ def embedded_json(page: str, element: str) -> object:
     return json.loads(page[page.index(">", start) + 1 : page.index("</script>", start)])
 
 
+def table_rows(columns: dict[str, list]) -> list[dict]:
+    """Return the rows of a record table that a page embeds column by column."""
+    return [
+        dict(zip(columns, values, strict=True))
+        for values in zip(*columns.values(), strict=True)
+    ]
+
+
 def producing_factory() -> tuple[Model, Node, Node]:
     """A linked one-stage chain whose factory produces, with no route yet."""
     model = Model(time_unit="weeks")

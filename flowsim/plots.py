@@ -25,6 +25,8 @@ from flowsim.records import SUPPLIER, Phase, Status
 from flowsim.validation import integer
 
 if TYPE_CHECKING:
+    import numpy as np
+
     from flowsim.model import Model
     from flowsim.results import Results
 
@@ -65,6 +67,20 @@ def building_page() -> Iterator[None]:
         yield
     finally:
         _BUILDING_PAGE.reset(token)
+
+
+def trace_values(values: pl.Series) -> list | np.ndarray:
+    """Return a record column for a trace: an array on a page, a list otherwise.
+
+    Plotly writes an array as compact base64 data, which keeps run pages small
+    and fast to write. A column with a null or NaN stays a list, so its gaps
+    reach the page as they always have. Figures returned to users hold lists.
+    """
+    if not _BUILDING_PAGE.get() or values.null_count() > 0:
+        return values.to_list()
+    if values.dtype.is_float() and values.is_nan().any():
+        return values.to_list()
+    return values.to_numpy()
 
 
 def style(figure: go.Figure, x_label: str, y_label: str) -> go.Figure:
@@ -786,8 +802,8 @@ def plot_queue(result: Results, station: str | None = None) -> go.Figure:
         ]:
             figure.add_trace(
                 go.Scatter(
-                    x=history.get_column("time").to_list(),
-                    y=history.get_column(field).to_list(),
+                    x=trace_values(history.get_column("time")),
+                    y=trace_values(history.get_column(field)),
                     name=name,
                     mode="lines",
                     line={"shape": "hv", "color": color, "width": 2},
@@ -822,14 +838,12 @@ def plot_wait(result: Results, station: str | None = None) -> go.Figure:
     names = chosen_stations(result, station)
     figure = go.Figure()
     for index, place in enumerate(names):
-        waits = (
+        waits = trace_values(
             result.visits.filter(
                 (pl.col("station") == place)
                 & (pl.col("arrival_time") >= result.settings.warmup)
                 & pl.col("wait_time").is_not_null()
-            )
-            .get_column("wait_time")
-            .to_list()
+            ).get_column("wait_time")
         )
         figure.add_trace(
             go.Histogram(
@@ -859,7 +873,7 @@ def plot_utilization(result: Results, station: str | None = None) -> go.Figure:
     stations = result.stations.filter(pl.col("station").is_in(names))
     figure = go.Figure(
         go.Scatter(
-            x=stations.get_column("utilization").to_list(),
+            x=trace_values(stations.get_column("utilization")),
             y=[label(name) for name in stations.get_column("station")],
             mode="markers",
             marker={"size": 12, "color": BLUE, "line": {"color": "black", "width": 1}},
@@ -1007,14 +1021,14 @@ def plot_resources(
     hover = "%{x:.2f} " + label(result.settings.time_unit)
     for index, place in enumerate(names):
         history = result.states.filter(pl.col("station") == place)
-        times = history.get_column("time").to_list()
+        times = trace_values(history.get_column("time"))
         if stacked:
             layers = server_layers(result, place)
             for field, color, name in RESOURCE_LAYERS:
                 figure.add_trace(
                     go.Scatter(
                         x=times,
-                        y=layers.get_column(field).to_list(),
+                        y=trace_values(layers.get_column(field)),
                         name=name,
                         mode="lines",
                         # Each station stacks its own layers.
@@ -1036,7 +1050,7 @@ def plot_resources(
             figure.add_trace(
                 go.Scatter(
                     x=times,
-                    y=history.get_column(field).to_list(),
+                    y=trace_values(history.get_column(field)),
                     name=name,
                     mode="lines",
                     line={"shape": "hv", "color": color, "width": 2, "dash": dash},
@@ -1187,8 +1201,10 @@ def service_payload(result: Results) -> dict:
         "kind": "service",
         "figures": figures,
         "stacked_resources": stacked,
-        "customers": result.customers.to_dicts(),
-        "visits": result.visits.to_dicts(),
+        # Record tables go column by column, which is about half the size of
+        # rows, and the run view rebuilds the rows it needs.
+        "customers": result.customers.to_dict(as_series=False),
+        "visits": result.visits.to_dict(as_series=False),
         # Table cells for these station metrics display as percentages.
         "percent_columns": [
             name for name, metric in METRICS.items() if metric.kind == "fraction"
@@ -1199,10 +1215,10 @@ def service_payload(result: Results) -> dict:
             "visits": result.visits.columns,
         },
         # The viewer draws these bars as given, so it matches plot_customer.
-        "timeline": timeline_spans(result).to_dicts(),
+        "timeline": timeline_spans(result).to_dict(as_series=False),
         "timeline_colors": TIMELINE_COLORS,
-        "failures": result.failures.to_dicts(),
-        "stations": result.stations.to_dicts(),
+        "failures": result.failures.to_dict(as_series=False),
+        "stations": result.stations.to_dict(as_series=False),
         "summary": result.summary.to_dicts()[0],
         "duration": result.settings.duration,
         "end_time": result.settings.end_time,
@@ -1240,8 +1256,8 @@ def plot_orders(result: Results) -> go.Figure:
     retailer = result.inventory.filter(pl.col("stock_point") == names[0])
     figure.add_trace(
         go.Scatter(
-            x=retailer.get_column("time").to_list(),
-            y=retailer.get_column("demand").to_list(),
+            x=trace_values(retailer.get_column("time")),
+            y=trace_values(retailer.get_column("demand")),
             name=label(supply["chain"][0]),
             mode="lines",
             line={"color": GRAY, "width": 2, "dash": "dot"},
@@ -1251,8 +1267,8 @@ def plot_orders(result: Results) -> go.Figure:
         rows = result.inventory.filter(pl.col("stock_point") == name)
         figure.add_trace(
             go.Scatter(
-                x=rows.get_column("time").to_list(),
-                y=rows.get_column("order_quantity").to_list(),
+                x=trace_values(rows.get_column("time")),
+                y=trace_values(rows.get_column("order_quantity")),
                 name=label(f"{name} orders"),
                 mode="lines",
                 line={"color": STAGE_COLORS[index % len(STAGE_COLORS)], "width": 2},
@@ -1297,8 +1313,8 @@ def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure
         for field, color, trace_name, dash in fields:
             figure.add_trace(
                 go.Scatter(
-                    x=rows.get_column("time").to_list(),
-                    y=rows.get_column(field).to_list(),
+                    x=trace_values(rows.get_column("time")),
+                    y=trace_values(rows.get_column(field)),
                     name=trace_name,
                     mode="lines",
                     line={"color": color, "width": 2, "dash": dash},
@@ -1343,11 +1359,12 @@ def supply_payload(result: Results) -> dict:
         "figures": figures,
         "chain": supply["chain"],
         "period": supply["period"],
-        "stock_points": result.stock_points.to_dicts(),
-        "inventory": result.inventory.to_dicts(),
-        "shipments": result.shipments.to_dicts(),
-        "stations": result.stations.to_dicts(),
-        "jobs": result.customers.to_dicts(),
+        # Record tables go column by column, as in service_payload.
+        "stock_points": result.stock_points.to_dict(as_series=False),
+        "inventory": result.inventory.to_dict(as_series=False),
+        "shipments": result.shipments.to_dict(as_series=False),
+        "stations": result.stations.to_dict(as_series=False),
+        "jobs": result.customers.to_dict(as_series=False),
         "summary": result.summary.to_dicts()[0],
         # Downloads use the export column order, even for empty tables.
         "columns": {

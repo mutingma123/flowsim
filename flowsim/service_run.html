@@ -82,13 +82,25 @@
   </section>
 </template>
 <script>
+// Python embeds each record table column by column, which keeps pages small.
+// This rebuilds a table's rows. Both run views use it, since every page that
+// holds one run view holds both.
+function tableRows(columns) {
+  const keys = Object.keys(columns);
+  const count = keys.length === 0 ? 0 : columns[keys[0]].length;
+  return Array.from({length: count}, (_, index) => Object.fromEntries(keys.map(key => [key, columns[key][index]])));
+}
 // Mount a fresh copy of the run view in root and draw one run's records.
 function showServiceRun(root, result, plotTemplate) {
     root.querySelectorAll(".js-plotly-plot").forEach(chart => Plotly.purge(chart));
     root.replaceChildren(document.getElementById("service-run-template").content.cloneNode(true));
-    const byId = new Map(result.customers.map(row => [row.customer_id, row]));
+    // The rows this view reads, rebuilt once when it opens. Downloads read the columns.
+    const customers = tableRows(result.customers);
+    const stations = tableRows(result.stations);
+    const failures = tableRows(result.failures);
+    const byId = new Map(customers.map(row => [row.customer_id, row]));
     const spansById = new Map();
-    result.timeline.forEach(row => {
+    tableRows(result.timeline).forEach(row => {
       if (!spansById.has(row.customer_id)) spansById.set(row.customer_id, []);
       spansById.get(row.customer_id).push(row);
     });
@@ -143,7 +155,7 @@ function showServiceRun(root, result, plotTemplate) {
       });
       element.append(body);
     }
-    table(document.getElementById("stations"), result.stations, [
+    table(document.getElementById("stations"), stations, [
       ["station", "Station"], ["capacity", "Servers"], ["arrivals", "Arrivals"],
       ["service_completions", "Completions"], ["mean_wait", "Mean wait (" + unit + ")"],
       ["p95_wait", "95th percentile wait (" + unit + ")"], ["mean_queue", "Mean queue (customers)"],
@@ -151,20 +163,20 @@ function showServiceRun(root, result, plotTemplate) {
     ]);
     if (result.figures.resources) {
       document.getElementById("resources-section").hidden = false;
-      table(document.getElementById("resource-stats"), result.stations, [
+      table(document.getElementById("resource-stats"), stations, [
         ["station", "Station"], ["processing_utilization", "Processing / installed capacity"],
         ["blocking_fraction", "Blocked / installed capacity"], ["downtime_fraction", "Down / installed capacity"],
         ["mean_scheduled_servers", "Mean scheduled servers"], ["mean_available_servers", "Mean available servers"],
         ["staffed_utilization", "Processing / available capacity"], ["mean_outside_queue", "Mean outside customers"]
       ]);
-      table(document.getElementById("failure-records"), result.failures, [
+      table(document.getElementById("failure-records"), failures, [
         ["station", "Station"], ["server_id", "Server"], ["failure_time", "Failure (" + unit + ")"],
         ["time_to_failure", "Failure clock duration (" + unit + ")"],
         ["repair_time", "Repair duration (" + unit + ")"], ["repair_end", "Repair end (" + unit + ")"]
       ]);
     }
     const stationChoice = document.getElementById("station-choice");
-    result.stations.forEach(row => {
+    stations.forEach(row => {
       const option = document.createElement("option"); option.value = row.station; option.textContent = row.station; stationChoice.append(option);
     });
     function fitLayout(id, figure) {
@@ -283,10 +295,10 @@ function showServiceRun(root, result, plotTemplate) {
     showCustomer();
     let page = 0; const pageSize = 25;
     // The type column appears only when some customer has a type.
-    const typed = result.customers.some(row => row.customer_type !== null);
+    const typed = customers.some(row => row.customer_type !== null);
     function customerTable() {
       const status = document.getElementById("status-choice").value;
-      const rows = result.customers.filter(row => status === "all" || row.status === status)
+      const rows = customers.filter(row => status === "all" || row.status === status)
         .map(row => row.status === "completed" || row.status === "abandoned" ? Object.assign({}, row, {station: "Left system"}) : row);
       const pages = Math.max(1, Math.ceil(rows.length / pageSize));
       page = Math.min(Math.max(page, 0), pages - 1);
@@ -304,9 +316,13 @@ function showServiceRun(root, result, plotTemplate) {
     document.getElementById("previous").addEventListener("click", () => { page -= 1; customerTable(); });
     document.getElementById("next").addEventListener("click", () => { page += 1; customerTable(); });
     customerTable();
-    function download(name, rows, keys) {
+    // Each CSV line reads one row across the table's columns, in the export column order.
+    function download(name, columns, keys) {
       const quote = value => value === null || value === undefined ? "" : '"' + String(value).replaceAll('"', '""') + '"';
-      const csv = [keys.map(quote).join(",")].concat(rows.map(row => keys.map(key => quote(row[key])).join(","))).join("\r\n");
+      const count = keys.length === 0 ? 0 : columns[keys[0]].length;
+      const lines = [keys.map(quote).join(",")];
+      for (let index = 0; index < count; index += 1) lines.push(keys.map(key => quote(columns[key][index])).join(","));
+      const csv = lines.join("\r\n");
       const url = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"}));
       const link = document.createElement("a"); link.href = url; link.download = name; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);

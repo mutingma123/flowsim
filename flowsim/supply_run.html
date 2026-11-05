@@ -48,6 +48,10 @@
 function showSupplyRun(root, result, plotTemplate) {
     root.querySelectorAll(".js-plotly-plot").forEach(chart => Plotly.purge(chart));
     root.replaceChildren(document.getElementById("supply-run-template").content.cloneNode(true));
+    // The rows this view reads, rebuilt once when it opens by tableRows from
+    // service_run.html. Downloads read the columns.
+    const stockPoints = tableRows(result.stock_points);
+    const stations = tableRows(result.stations);
     const config = {responsive: true, displaylogo: false};
     const unit = result.time_unit;
     const format = value => value === null || value === undefined ? "Not observed" :
@@ -57,8 +61,8 @@ function showSupplyRun(root, result, plotTemplate) {
       "Chain: " + result.chain.join(" → ") + ". Review period: " + format(result.period) + " " + unit +
       ". Reviews end at " + format(result.duration) + " " + unit + ". Measurement begins at " + format(result.warmup) + " " + unit +
       ". Seed: " + result.seed + ".";
-    const first = result.stock_points[0];
-    const last = result.stock_points[result.stock_points.length - 1];
+    const first = stockPoints[0];
+    const last = stockPoints[stockPoints.length - 1];
     const cards = [
       ["Periods measured", format(first.periods)],
       [first.stock_point + " fill rate", percent(first.fill_rate)],
@@ -88,14 +92,14 @@ function showSupplyRun(root, result, plotTemplate) {
       });
       element.append(body);
     }
-    table(document.getElementById("stock-points"), result.stock_points, [
+    table(document.getElementById("stock-points"), stockPoints, [
       ["stock_point", "Stock point"], ["mean_demand", "Mean orders received"], ["mean_order", "Mean orders placed"],
       ["bullwhip_ratio", "Bullwhip ratio"], ["fill_rate", "Fill rate"], ["mean_on_hand", "Mean on hand"],
       ["mean_backorders", "Mean backorders"], ["lost_units", "Lost sales"]
     ]);
     // Production stations appear only when the top stage produces. Each job's
     // flow time runs from its release at a review to its finish.
-    const production = result.stations.length > 0;
+    const production = stations.length > 0;
     const stationChoice = document.getElementById("station-choice");
     if (production) {
       const top = result.chain[result.chain.length - 1];
@@ -106,16 +110,16 @@ function showSupplyRun(root, result, plotTemplate) {
         format(result.summary.mean_flow_time) + " " + unit + " on average from release to finish (" +
         result.summary.cohort_completions + " finished, " + result.summary.cohort_remaining + " unfinished at the end). " +
         "A finished job enters stock at the next review. Station measures use the same window as the stock points.";
-      table(document.getElementById("stations"), result.stations, [
+      table(document.getElementById("stations"), stations, [
         ["station", "Station"], ["capacity", "Servers"], ["utilization", "Utilization"],
         ["mean_queue", "Mean jobs waiting"], ["mean_wait", "Mean wait (" + unit + ")"]
       ]);
-      result.stations.forEach(row => {
+      stations.forEach(row => {
         const option = document.createElement("option"); option.value = row.station; option.textContent = row.station; stationChoice.append(option);
       });
     }
     const stockChoice = document.getElementById("stock-choice");
-    result.stock_points.forEach(row => {
+    stockPoints.forEach(row => {
       const option = document.createElement("option"); option.value = row.stock_point; option.textContent = row.stock_point; stockChoice.append(option);
     });
     const plotsReady = Promise.all(Object.entries(result.figures).map(([id, figure]) => {
@@ -136,9 +140,13 @@ function showSupplyRun(root, result, plotTemplate) {
       await plotsReady;
       Plotly.restyle("queues", {visible: result.figures.queues.data.map(trace => trace.meta === stationChoice.value)});
     });
-    function download(name, rows, keys) {
+    // Each CSV line reads one row across the table's columns, in the export column order.
+    function download(name, columns, keys) {
       const quote = value => value === null || value === undefined ? "" : '"' + String(value).replaceAll('"', '""') + '"';
-      const csv = [keys.map(quote).join(",")].concat(rows.map(row => keys.map(key => quote(row[key])).join(","))).join("\r\n");
+      const count = keys.length === 0 ? 0 : columns[keys[0]].length;
+      const lines = [keys.map(quote).join(",")];
+      for (let index = 0; index < count; index += 1) lines.push(keys.map(key => quote(columns[key][index])).join(","));
+      const csv = lines.join("\r\n");
       const url = URL.createObjectURL(new Blob([csv], {type: "text/csv;charset=utf-8"}));
       const link = document.createElement("a"); link.href = url; link.download = name; link.click();
       setTimeout(() => URL.revokeObjectURL(url), 1000);

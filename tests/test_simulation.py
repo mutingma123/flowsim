@@ -20,6 +20,7 @@ from tests.models import (
     deterministic_queue,
     service_network,
     single_station,
+    table_rows,
 )
 
 
@@ -693,7 +694,7 @@ def test_customer_timeline_spans_feed_the_plot_and_the_viewer():
     payload = json.loads(
         viewer[viewer.index(">", start) + 1 : viewer.index("</script>", start)]
     )
-    assert payload["timeline"] == spans.to_dicts()
+    assert table_rows(payload["timeline"]) == spans.to_dicts()
     assert list(payload["timeline_colors"]) == [trace.name for trace in figure.data]
 
 
