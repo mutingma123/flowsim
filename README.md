@@ -2076,13 +2076,16 @@ README on its own, in a fresh namespace, and checks that the generated metric
 and column tables match the catalog. After a catalog change, the failing test
 prints the new table to paste between the markers. The browser tests block
 external requests and exercise the saved viewers' controls and downloads and
-the builder page's controls (`tests/test_builder.py`). Most viewer tests run in
-Chrome or Chromium, and the line-box test, the comparison dashboard test, and
-the builder tests run in both Chrome or Chromium and Playwright's Firefox
-(installed with `pixi run playwright install firefox`).
-The tests find Chrome or Chromium on the executable search path, and a test
-whose browser is missing reports a skip. Setting `FLOWSIM_CHROME` to a browser
-executable selects it, and a path that does not exist fails the tests.
+the builder page's controls (`tests/test_builder.py`). Every browser test runs
+twice, once in Chrome or Chromium and once in Playwright's Firefox (installed
+with `pixi run playwright install firefox`). Safari's engine (WebKit) is not
+tested. The tests find Chrome or Chromium on the executable search path, and a
+test whose browser is missing reports a skip. Setting `FLOWSIM_CHROME` to a
+browser executable selects it, and a path that does not exist fails the tests.
+On macOS, Chrome is an app bundle that the search path does not reach, so the
+Chrome tests skip unless `FLOWSIM_CHROME` names its executable (e.g.,
+`export FLOWSIM_CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"`
+before `pixi run check`).
 
 ## Scope and limits
 
@@ -2106,13 +2109,14 @@ records at a time (see Replications), but there is no streaming mode for one
 long run. A single run's viewer embeds its raw records, so it can become large
 for long runs (approximately 5 MB for one 480-minute day of the first model).
 An experiment or comparison page embeds every run's records when they were
-kept, so the service day comparison (3 scenarios of 20 days) saves a 22.6 MB
-page, i.e., 4.8 MB of Plotly, 17.1 MB of records (0.28 MB per run), and 0.7 MB
+kept, so the service day comparison (3 scenarios of 20 days) saves a 14.1 MB
+page, i.e., 4.8 MB of Plotly, 8.6 MB of records (0.14 MB per run), and 0.7 MB
 of intervals, charts, and page code. With `keep_records=False`, the same page
 holds only the overview (5.5 MB). A Marimo notebook cannot display the page
-with records, since Marimo's frame encoding makes it a 62 MB output, above the
+with records, since Marimo measures its frame as a 33.6 MB output, above the
 30 MB `output_max_bytes` that `pyproject.toml` sets, so a notebook saves that
-page and opens it in a browser. The overview-only page displays in Marimo.
+page and opens it in a browser. The overview-only page (13.3 MB in Marimo)
+displays.
 Numeric outputs target classroom tables and plots, and LaTeX numeric exports
 are not included. FlowSim schedules events with its own scheduler
 (`flowsim/scheduler.py`) instead of a simulation library, and that scheduler was
