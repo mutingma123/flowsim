@@ -132,6 +132,9 @@ Results.report uses supply is not None (they agree today; proposed: supply=exper
 supply is not None in locations); tests still read _definitions in test_abandonment.py:84,
 test_priorities.py:163-164, and test_distributions.py:267-268 and 357-358, since no public route
 exists (the same values are public in metadata.json's definitions).
+Owner decision, 2026-11-05: these _definitions reads stay. Switching them to the export
+metadata would keep their expected values but tie distribution and priority tests to the
+export format.
 
 Metrics: mass 103 as at H11, bench ratios inside the range since H16, and the suite is not
 faster, so by the loop's rule this chunk improves no metric. The engine mutation score rose

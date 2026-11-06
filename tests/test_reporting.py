@@ -18,6 +18,7 @@ from flowsim import (
     Model,
     builder,
     compare,
+    reporting,
 )
 from flowsim.catalog import STATION_METRICS, STOCK_POINT_METRICS, SYSTEM_METRICS
 from flowsim.records import STATION_SCHEMA
@@ -143,6 +144,47 @@ def test_experiment_plot_draws_one_point_per_location(experiment):
     )
     assert "at Service" in single.layout.xaxis.title.text
     assert single.layout.xaxis.tickformat == ".0%"
+
+
+@pytest.mark.parametrize(
+    ("values", "expected"),
+    [
+        # 0 to 2 spans 2, padded by 0.1 at each end; the gap is skipped.
+        ({None: [0.0, 2.0, None]}, [-0.1, 2.1]),
+        # All zero spans 0 to 1, padded by 0.05.
+        ({"A": [0.0, 0.0], "B": [0.0]}, [-0.05, 1.05]),
+        # 0.5 to 0.8 still reaches 0, so it spans 0.8, padded by 0.04.
+        ({None: [0.5, 0.8]}, [-0.04, 0.84]),
+    ],
+)
+def test_replication_figure_pads_its_y_range_below_zero(values, expected):
+    scenarios = list(values)
+    figure = reporting.replication_figure(
+        values=values,
+        scenarios=scenarios,
+        metric="mean_wait",
+        place=None,
+        time_unit="minutes",
+    )
+    axis = figure.layout.yaxis
+    assert list(axis.range) == pytest.approx(expected)
+    # Autoscale returns to the same padded range.
+    assert [
+        axis.autorangeoptions.minallowed,
+        axis.autorangeoptions.maxallowed,
+    ] == pytest.approx(expected)
+
+
+def test_replication_figure_without_values_keeps_plotly_autorange():
+    figure = reporting.replication_figure(
+        values={None: [None, None]},
+        scenarios=[None],
+        metric="mean_wait",
+        place=None,
+        time_unit="minutes",
+    )
+    assert figure.layout.yaxis.range is None
+    assert figure.layout.yaxis.autorangeoptions.minallowed is None
 
 
 def test_comparison_plot_names_scenario_and_station_when_several(comparison):

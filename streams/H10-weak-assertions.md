@@ -105,3 +105,5 @@ Not changed (in Scope, not in the done check): the stationless viewer's "FlowSim
 in test_reporting.py, test_extensions.py:817's one[0] != two[0], and test_production.py's
 stock_point list that repeats its argument. Stronger versions need expected values that only a
 simulator run would supply, which AGENTS.md asks tests not to rely on alone.
+Owner decision, 2026-11-05: these three stay as they are and the item is closed, since the
+seed check has no hand-calculable value and the other two would need simulator-only values.

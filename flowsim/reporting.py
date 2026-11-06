@@ -562,6 +562,21 @@ def replication_figure(
         margin={"l": 85, "r": 30, "t": 60, "b": 70},
     )
     figure.update_xaxes(rangemode="normal")
+    plotted = [value for runs in values.values() for value in runs if value is not None]
+    if plotted:
+        # A "tozero" range puts a zero value on the plot's lower edge, where
+        # Firefox misses a click on its point, so the range pads both ends by
+        # 5% of the span from zero to the furthest value (1 if all are zero).
+        # Autoscale and double-click return to the same range.
+        low = min(0.0, *plotted)
+        high = max(0.0, *plotted)
+        if high == low:
+            high = low + 1.0
+        pad = 0.05 * (high - low)
+        figure.update_yaxes(
+            range=[low - pad, high + pad],
+            autorangeoptions={"minallowed": low - pad, "maxallowed": high + pad},
+        )
     if METRICS[metric].kind == "fraction":
         figure.update_yaxes(tickformat=".0%")
     return figure

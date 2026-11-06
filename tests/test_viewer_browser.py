@@ -491,10 +491,8 @@ def click_point(page, index):
     point = page.locator("#replication-values .point").nth(index)
     point.scroll_into_view_if_needed()
     box = point.bounding_box()
-    # A point at the axis minimum has its centre on the drag layer's edge, which
-    # Firefox treats as outside it, so aim at the marker's upper half.
     x = box["x"] + box["width"] / 2
-    y = box["y"] + box["height"] / 4
+    y = box["y"] + box["height"] / 2
     page.mouse.move(x, y)
     page.mouse.click(x, y)
 
@@ -683,3 +681,37 @@ def test_a_point_opens_its_own_scenario_where_another_lacks_the_station(
         "Service",
         "Check",
     ]
+
+
+def test_a_zero_point_still_opens_its_run_after_autoscale(tmp_path, engine_page):
+    comparison = compare(
+        scenarios={
+            "Without": deterministic_queue(),
+            "With": two_station_queue(),
+        },
+        duration=7,
+        replications=2,
+    )
+    viewer = tmp_path / "comparison.html"
+    comparison.viewer(viewer, metric="mean_wait")
+    page = engine_page(viewer)
+    ready(page)
+    # Service sends jobs to Check at 2, 4, and 6, and Check takes 1, so no job waits.
+    page.select_option("#location-choice", label="Check")
+    page.wait_for_function(
+        "document.getElementById('interval-title').textContent.endsWith('Check')"
+    )
+    chart = page.locator("#replication-values")
+    chart.scroll_into_view_if_needed()
+    chart.hover()
+    page.locator('#replication-values .modebar-btn[data-title="Autoscale"]').click()
+    # The padded range of 0 to 1, widened by 0.05 at each end, survives.
+    assert page.evaluate(
+        "document.getElementById('replication-values')._fullLayout.yaxis.range"
+    ) == pytest.approx([-0.05, 1.05])
+    click_point(page, 0)
+    ready(page, "flowsimRunReady")
+    seed = comparison.experiments["With"].runs[0].settings.seed
+    assert page.locator("#run-heading").inner_text() == (
+        f"With, replication 1 (seed {seed})"
+    )
