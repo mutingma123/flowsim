@@ -95,3 +95,4 @@ fractional ticks (1.2, 1.4) when a run has few replications (proposed: dtick 1 u
 replications); and a long y title such as "Mean station waiting time at Check (minutes)" is
 taller than the 380-pixel chart, so its first letter is clipped (proposed: a line break before
 the units in metric_axis_label for this chart).
+Both fixed in H27 on the owner's order of 2026-11-05.

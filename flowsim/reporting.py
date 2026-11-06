@@ -374,14 +374,31 @@ def comparison_differences(
     )
 
 
-def metric_axis_label(metric: str, place: str | None, time_unit: str) -> str:
-    """Name a metric's value axis, with its location and units."""
+def metric_axis_parts(
+    metric: str,
+    place: str | None,
+    time_unit: str,
+) -> tuple[str, str | None]:
+    """Return a metric's axis name with its location, and its units.
+
+    A fraction has no units, so its second part is None.
+    """
     text = METRICS[metric].label
     if place is not None:
         text += f" at {place}"
-    if METRICS[metric].kind != "fraction":
-        text += f" ({metric_units(metric, time_unit)})"
-    return text
+    if METRICS[metric].kind == "fraction":
+        return text, None
+    return text, f"({metric_units(metric, time_unit)})"
+
+
+def metric_axis_label(metric: str, place: str | None, time_unit: str) -> str:
+    """Name a metric's value axis, with its location and units."""
+    name, units = metric_axis_parts(
+        metric=metric,
+        place=place,
+        time_unit=time_unit,
+    )
+    return name if units is None else f"{name} {units}"
 
 
 def interval_figure(
@@ -548,20 +565,28 @@ def replication_figure(
                 ),
             )
         )
+    name, units = metric_axis_parts(
+        metric=metric,
+        place=place,
+        time_unit=time_unit,
+    )
     style(
         figure=figure,
         x_label="Replication",
-        y_label=metric_axis_label(
-            metric=metric,
-            place=place,
-            time_unit=time_unit,
-        ),
+        y_label=name,
     )
     figure.update_layout(
         height=380,
-        margin={"l": 85, "r": 30, "t": 60, "b": 70},
+        margin={"l": 95, "r": 30, "t": 60, "b": 70},
     )
+    if units is not None:
+        # The units take a second line, so a long title fits the chart's
+        # height. style escapes its labels, so the break is added here.
+        figure.update_yaxes(title_text=f"{label(name)}<br>{label(units)}")
     figure.update_xaxes(rangemode="normal")
+    # Plotly labels fractional replications (1.2, 1.4) on a short axis.
+    if max((len(runs) for runs in values.values()), default=0) <= 10:
+        figure.update_xaxes(dtick=1)
     plotted = [value for runs in values.values() for value in runs if value is not None]
     if plotted:
         # A "tozero" range puts a zero value on the plot's lower edge, where

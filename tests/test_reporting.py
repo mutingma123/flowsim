@@ -178,6 +178,39 @@ def test_replication_figure_pads_its_y_range_below_zero(values, expected):
     ] == pytest.approx(expected)
 
 
+@pytest.mark.parametrize(
+    ("metric", "place", "title"),
+    [
+        ("mean_wait", "Check", "Mean station waiting time at Check<br>(minutes)"),
+        # Model text is escaped on each line, and the break is kept.
+        ("mean_wait", "A<B", "Mean station waiting time at A&lt;B<br>(minutes)"),
+        # A fraction has no units, so its title keeps one line.
+        ("utilization", "Finishing", "Occupied / installed capacity at Finishing"),
+    ],
+)
+def test_replication_figure_puts_units_on_a_second_line(metric, place, title):
+    figure = reporting.replication_figure(
+        values={None: [0.5, 0.8]},
+        scenarios=[None],
+        metric=metric,
+        place=place,
+        time_unit="minutes",
+    )
+    assert figure.layout.yaxis.title.text == title
+
+
+@pytest.mark.parametrize(("runs", "dtick"), [(3, 1), (10, 1), (11, None)])
+def test_replication_figure_labels_whole_replications_up_to_ten(runs, dtick):
+    figure = reporting.replication_figure(
+        values={"A": [1.0] * runs, "B": [2.0] * (runs - 1)},
+        scenarios=["A", "B"],
+        metric="mean_wait",
+        place=None,
+        time_unit="minutes",
+    )
+    assert figure.layout.xaxis.dtick == dtick
+
+
 def test_replication_figure_without_values_keeps_plotly_autorange():
     figure = reporting.replication_figure(
         values={None: [None, None]},
