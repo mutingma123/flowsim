@@ -83,19 +83,46 @@ def trace_values(values: pl.Series) -> list | np.ndarray:
     return values.to_numpy()
 
 
+def _merged(base: dict, extra: dict) -> dict:
+    """Return base updated with extra, as Plotly's update_layout merges them.
+
+    A dict merges into an existing dict, and any other value replaces the old
+    one, so an axis title string replaces the whole title.
+    """
+    merged = dict(base)
+    for key, value in extra.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merged(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def style(figure: go.Figure, x_label: str, y_label: str) -> go.Figure:
+    """Give a figure FlowSim's size, font, axes, margins, and legend.
+
+    The figure gets one new Layout, its own layout merged with these values,
+    because update_layout costs about three times as much per figure. Layout
+    set before (e.g., a station menu) is kept. The merge leaves out the
+    template, since validating it again is slow. Plotly gives a page figure
+    its default template back, which page_figure drops, and any other figure
+    gets plotly_white.
+    """
+    shared = {
+        "width": 800,
+        "height": 500,
+        "font": {"family": "Georgia, serif", "size": 14},
+        "xaxis": {"title": label(x_label), "rangemode": "tozero"},
+        "yaxis": {"title": label(y_label), "rangemode": "tozero"},
+        "margin": {"l": 85, "r": 30, "t": 35, "b": 70},
+        "legend": {"orientation": "h", "y": 1.14, "x": 0},
+        "hovermode": "closest",
+    }
     if not _BUILDING_PAGE.get():
-        figure.update_layout(template="plotly_white")
-    figure.update_layout(
-        width=800,
-        height=500,
-        font={"family": "Georgia, serif", "size": 14},
-        xaxis={"title": label(x_label), "rangemode": "tozero"},
-        yaxis={"title": label(y_label), "rangemode": "tozero"},
-        margin={"l": 85, "r": 30, "t": 35, "b": 70},
-        legend={"orientation": "h", "y": 1.14, "x": 0},
-        hovermode="closest",
-    )
+        shared["template"] = "plotly_white"
+    layout = figure.layout.to_plotly_json()
+    layout.pop("template", None)
+    figure.layout = go.Layout(_merged(layout, shared))
     return figure
 
 

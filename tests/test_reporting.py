@@ -8,6 +8,8 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import numpy as np
+import plotly.graph_objects as go
+import plotly.io as pio
 import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
@@ -18,6 +20,7 @@ from flowsim import (
     Model,
     builder,
     compare,
+    plots,
     reporting,
 )
 from flowsim.catalog import STATION_METRICS, STOCK_POINT_METRICS, SYSTEM_METRICS
@@ -185,6 +188,48 @@ def test_replication_figure_without_values_keeps_plotly_autorange():
     )
     assert figure.layout.yaxis.range is None
     assert figure.layout.yaxis.autorangeoptions.minallowed is None
+
+
+def test_style_keeps_earlier_layout_and_replaces_what_it_sets():
+    def menu_figure():
+        figure = go.Figure(
+            data=[
+                go.Scatter(x=[1], y=[1], meta="Cut"),
+                go.Scatter(x=[1], y=[2], meta="Pack"),
+            ]
+        )
+        plots.station_menu(figure, ["Cut", "Pack"])
+        figure.update_layout(
+            height=300,
+            showlegend=False,
+            xaxis={"tickformat": ".0%", "title": {"text": "Old", "font": {"size": 20}}},
+        )
+        return figure
+
+    figure = plots.style(menu_figure(), x_label="Wait", y_label="Count")
+    layout = figure.layout
+    buttons = layout.updatemenus[0].buttons
+    assert [button.label for button in buttons] == ["Cut", "Pack"]
+    assert [button.args[0]["visible"] for button in buttons] == [
+        [True, False],
+        [False, True],
+    ]
+    assert layout.showlegend is False
+    assert layout.xaxis.tickformat == ".0%"
+    # A title string replaces the whole title, as update_layout does.
+    assert layout.xaxis.title.text == "Wait"
+    assert layout.xaxis.title.font.size is None
+    assert layout.yaxis.title.text == "Count"
+    assert layout.height == 500
+    assert layout.margin.l == 85
+    assert layout.template == pio.templates["plotly_white"]
+    # A page holds the template once, so its figures carry none.
+    with plots.building_page():
+        page = plots.page_figure(
+            plots.style(menu_figure(), x_label="Wait", y_label="Count")
+        )
+    assert "template" not in page["layout"]
+    assert len(page["layout"]["updatemenus"][0]["buttons"]) == 2
 
 
 def test_comparison_plot_names_scenario_and_station_when_several(comparison):
