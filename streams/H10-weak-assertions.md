@@ -1,6 +1,6 @@
 # H10 Strengthen vacuous and weak assertions
 
-**Status: proposed 2026-11-05.**
+**Status: done 2026-11-05.**
 Depends on: H8 (run order, to keep one tree)
 Branch: health-2.0 (owner ruling, 2026-11-05: chunks commit on health-2.0, which is pushed;
 main is not merged or fast-forwarded until the owner approves the 2.0 release)
@@ -66,4 +66,42 @@ rename map entry cannot explain, and any test removal not named in this brief.
 
 ## Progress
 
+- baseline: 516 passed @ 383a68c. Run on the owner's ruling (2026-11-05) after the 2.0.1 release.
+- edits made inline (five short test changes whose exact text was the spec).
+- first gates (logs/2026-11-05-1839-gate-*-H10.log, .code-health/gate-H10-first.txt): all passed,
+  516 tests.
+- mutation (logs/2026-11-05-1839-mutation-H10-*.log): station 428 killed plus 2 timeouts
+  (430/480), engine 763/834, results metrics 742/803, unchanged. Not rerun after the fix, which
+  changes only tests/test_distributions.py.
+- after the review fix (logs/2026-11-05-1850-gate-*-H10.log): check EXIT=0, 516 passed in 186.4 s;
+  examples EXIT=0, sentinels 3/3; GOLDEN=MATCH; coverage 98.2%; mass 103 (11.2); bench run
+  0.921, compare 0.933, dashboard 0.939.
+
 ## Result
+
+- test_comparison_viewer_prints_a_fractional_confidence_level checks the dashboard's embedded
+  confidence_text (97.5%, 95%, 90%) instead of a substring anywhere in the page, which "95%"
+  always matched.
+- test_worked_exercise_preserves_customer_accounting_and_target_rule no longer asserts
+  required == 3 on the line after computing it; the comment keeps the hand calculation.
+- test_family_names_are_validated matches each case's own message (one string, an empty list,
+  a count family for durations with the discrete=True pointer, an unknown name, a near miss)
+  instead of "famil".
+- test_lognormal_keeps_a_small_coefficient_of_variation reads sigma through the public call: a
+  recording generator captures the sigma passed to rng.lognormal, checked against the same hand
+  values (about 1e-9, and sqrt(log 2)). Confirmed it fails when log1p is replaced by log(1 + x).
+- test_underscore_names_get_a_plain_error keeps pytest.raises(TypeError) for deepcopy and pickle
+  but drops match="mappingproxy", which named an implementation detail.
+No test was added, removed, or renamed, and no expected number changed.
+
+The brief's done check said to check .sd against its hand value instead of _sigma. That item
+was struck: Lognormal.sd is the stored constructor argument, so the check could never fail. The
+first version of this chunk did exactly that, and the Codex adversarial review
+(streams/reviews/H10-codex.md, one medium finding, accepted after reading
+flowsim/distributions.py:408-424) caught it independently of the session's own check; its
+proposed recording generator is the fix above.
+
+Not changed (in Scope, not in the done check): the stationless viewer's "FlowSim" in html check
+in test_reporting.py, test_extensions.py:817's one[0] != two[0], and test_production.py's
+stock_point list that repeats its argument. Stronger versions need expected values that only a
+simulator run would supply, which AGENTS.md asks tests not to rely on alone.

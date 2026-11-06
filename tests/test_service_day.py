@@ -707,9 +707,11 @@ def test_comparison_viewer_and_plot_name_the_chosen_station():
 
 def test_comparison_viewer_prints_a_fractional_confidence_level(drained_comparison):
     result = drained_comparison
-    assert "97.5%" in result.viewer(confidence=0.975).html
-    assert "95%" in result.viewer(confidence=0.95).html
-    assert "90%" in result.viewer(confidence=0.9).html
+    # The page reads its confidence label from its data, so check that text
+    # rather than any "95%" elsewhere in the page.
+    for level, text in [(0.975, "97.5%"), (0.95, "95%"), (0.9, "90%")]:
+        page = result.viewer(confidence=level).html
+        assert embedded_json(page, "dashboard-data")["confidence_text"] == text
 
 
 def test_export_removes_stale_flowsim_files_and_keeps_other_files(tmp_path):

@@ -48,7 +48,6 @@ def test_worked_exercise_preserves_customer_accounting_and_target_rule():
     ).rows() == list(STAFFING.items())
     # Meeting the share of 3 days takes ceil(0.9 * 3) = 3 on-time days.
     required = math.ceil(ON_TIME_SHARE * 3)
-    assert required == 3
     for row in decision.to_dicts():
         experiment = comparison.experiments[row["scenario"]]
         assert experiment.runs[0].settings.capacities["Service"] == row["servers"]

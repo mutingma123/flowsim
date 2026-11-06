@@ -377,11 +377,17 @@ def test_count_data_must_be_whole_numbers():
 
 
 @pytest.mark.parametrize(
-    "families",
-    ["normal", [], ["normal", "poisson"], ["not_a_family"], ["norm"]],
+    ("families", "message"),
+    [
+        ("normal", r'a list of family names, e\.g\. \["normal"\], not one string'),
+        ([], "must name at least one distribution"),
+        (["normal", "poisson"], r"Unknown families \['poisson'\].*discrete=True"),
+        (["not_a_family"], r"Unknown families \['not_a_family'\] for durations"),
+        (["norm"], r"Unknown families \['norm'\] for durations"),
+    ],
 )
-def test_family_names_are_validated(families):
-    with pytest.raises(ValueError, match="famil"):
+def test_family_names_are_validated(families, message):
+    with pytest.raises(ValueError, match=message):
         fit_all(
             data=[1.0, 2.0, 3.0],
             families=families,

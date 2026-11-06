@@ -311,11 +311,21 @@ def test_triangular_sd_survives_a_large_shift():
 
 
 def test_lognormal_keeps_a_small_coefficient_of_variation():
+    # A draw passes the generator the sigma of the duration's logarithm, so a
+    # generator that records it checks the conversion through the public call.
+    class Recorder:
+        def lognormal(self, mean, sigma):
+            self.sigma = sigma
+            return 1.0
+
     # sd / mean = 1e-9, so sigma^2 = log1p(1e-18), i.e., sigma is about 1e-9.
-    assert flowsim.lognormal(mean=1, sd=1e-9)._sigma == pytest.approx(1e-9)
-    assert flowsim.lognormal(mean=1e-200, sd=1e-200)._sigma == pytest.approx(
-        math.sqrt(math.log(2))
-    )
+    # Computed as log(1 + 1e-18), sigma would be 0 and every draw identical.
+    rng = Recorder()
+    flowsim.lognormal(mean=1, sd=1e-9)(rng)
+    assert rng.sigma == pytest.approx(1e-9)
+    # sd / mean = 1, so sigma = sqrt(log 2), however small the scale.
+    flowsim.lognormal(mean=1e-200, sd=1e-200)(rng)
+    assert rng.sigma == pytest.approx(math.sqrt(math.log(2)))
 
 
 def test_huge_equal_weights_normalize_to_equal_probabilities():

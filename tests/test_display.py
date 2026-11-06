@@ -123,9 +123,9 @@ def test_underscore_names_get_a_plain_error():
     assert "Close matches" not in str(error.value)
     assert "moved" not in str(error.value)
     # Results holds read-only mappings, so it could never be copied or pickled.
-    with pytest.raises(TypeError, match="mappingproxy"):
+    with pytest.raises(TypeError):
         copy.deepcopy(results)
-    with pytest.raises(TypeError, match="mappingproxy"):
+    with pytest.raises(TypeError):
         pickle.dumps(results)
     assert copy.copy(results).summary.equals(results.summary)
 
