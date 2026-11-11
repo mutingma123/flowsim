@@ -30,7 +30,7 @@ version = { attr = "flowsim.__version__" }
 include = ["flowsim*"]
 
 [tool.setuptools.package-data]
-flowsim = ["py.typed", "builder.html", "dashboard.html", "page.css", "run.html", "service_run.html", "supply_run.html"]
+flowsim = ["py.typed", "builder.html", "dashboard.html", "page.css", "plotly-cartesian.min.js", "run.html", "service_run.html", "supply_run.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -52,6 +52,6 @@ venvPath = ".pixi/envs"
 venv = "default"
 
 [tool.marimo.runtime]
-# Each lesson viewer embeds plotly.js, and Marimo's iframe encoding roughly
-# doubles it to about 12 MB, which exceeds Marimo's 8 MB default.
+# A comparison page that keeps its runs' records is about 11 MB, and Marimo's
+# iframe encoding roughly doubles it, which exceeds Marimo's 8 MB default.
 output_max_bytes = 30_000_000

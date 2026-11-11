@@ -1,13 +1,16 @@
 """Experiment and comparison dashboards: their data, runs, and checks."""
 
 import json
+import re
+from pathlib import Path
 
 import pytest
-from plotly.offline import get_plotlyjs
+from plotly.offline import get_plotlyjs_version
 
+import flowsim
 from flowsim import compare
 from flowsim.catalog import STATION_METRICS, SYSTEM_METRICS
-from flowsim.plots import page_template
+from flowsim.plots import PLOTLY_BUNDLE, page_template
 from tests.models import (
     deterministic_queue,
     embedded_json,
@@ -104,7 +107,7 @@ def test_comparison_dashboard_holds_every_metric_baseline_and_run(tmp_path):
                 f"{name}, replication {index + 1} (seed {run.settings.seed})"
             )
     # Plotly and the shared template appear once, and no figure repeats it.
-    assert page.count(get_plotlyjs()[:400]) == 1
+    assert page.count(plotly_bundle()[:400]) == 1
     assert embedded_json(page, "plot-template") == page_template()
     assert '"template"' not in json.dumps(data)
     assert '"template"' not in json.dumps(embedded_json(page, "run-0-0"))
@@ -160,3 +163,31 @@ def test_replication_points_keep_their_scenario_where_another_lacks_the_station(
     assert trace["marker"]["color"] == service["runs"]["data"][1]["marker"]["color"]
     assert [row["scenario"] for row in check["intervals"]] == ["With"]
     assert check["changes"]["Without"] is None
+
+
+def plotly_bundle() -> str:
+    package = Path(flowsim.__file__).parent
+    return (package / PLOTLY_BUNDLE).read_text(encoding="utf-8")
+
+
+def test_the_plotly_bundle_matches_the_installed_plotly_version():
+    # Figures are built by the plotly package and drawn by the bundle, so the
+    # two must be the same plotly.js release. Replace the bundle file when
+    # plotly is upgraded (see PLOTLY_BUNDLE in flowsim/plots.py).
+    header = plotly_bundle()[:200]
+    assert f"plotly.js (cartesian - minified) v{get_plotlyjs_version()}\n" in header
+
+
+def test_the_plotly_bundle_holds_every_trace_type_flowsim_draws():
+    # The cartesian bundle leaves out most trace types (e.g., table and
+    # scattergl), and a page would fail to draw one of those.
+    package = Path(flowsim.__file__).parent
+    drawn = {
+        name.lower()
+        for path in package.glob("*.py")
+        for name in re.findall(r"\bgo\.([A-Z]\w*)\(", path.read_text(encoding="utf-8"))
+    } - {"figure", "layout"}
+    assert drawn == {"scatter", "bar", "histogram"}
+    bundle = plotly_bundle()
+    for name in drawn:
+        assert f'moduleType:"trace",name:"{name}"' in bundle

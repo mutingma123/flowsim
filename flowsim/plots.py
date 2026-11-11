@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING
 
 import plotly.graph_objects as go
 import polars as pl
-from plotly.offline import get_plotlyjs
 
 from flowsim.catalog import METRICS, unknown
 from flowsim.records import Phase, Status
@@ -847,12 +846,21 @@ def fill_template(name: str, values: dict[str, str]) -> str:
     )
 
 
+# Plotly's cartesian bundle draws the scatter, bar, and histogram traces the
+# pages use at about a third of the full library's size, which the browser
+# parses on every page load. tests/test_dashboard.py checks that its version
+# matches the installed plotly package and that it holds every trace type
+# FlowSim draws. Replace the file when plotly is upgraded, from
+# https://cdn.jsdelivr.net/npm/plotly.js-cartesian-dist-min@VERSION/plotly-cartesian.min.js
+PLOTLY_BUNDLE = "plotly-cartesian.min.js"
+
+
 def page_parts() -> dict[str, str]:
     """Return the style, Plotly, template, and run views that every page holds."""
     folder = Path(__file__).parent
     return {
         "STYLE": (folder / "page.css").read_text(encoding="utf-8"),
-        "PLOTLY_JS": get_plotlyjs(),
+        "PLOTLY_JS": (folder / PLOTLY_BUNDLE).read_text(encoding="utf-8"),
         "TEMPLATE_JSON": page_json(page_template()),
         "SERVICE_RUN": (folder / "service_run.html").read_text(encoding="utf-8"),
         "SUPPLY_RUN": (folder / "supply_run.html").read_text(encoding="utf-8"),

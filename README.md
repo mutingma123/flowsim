@@ -2111,16 +2111,15 @@ which suits classroom-scale examples. An experiment or comparison with
 `keep_records=False` then keeps only each run's measures, so it holds one run's
 records at a time (see Replications), but there is no streaming mode for one
 long run. A single run's viewer embeds its raw records, so it can become large
-for long runs (approximately 5 MB for one 480-minute day of the first model).
+for long runs (approximately 1.7 MB for one 480-minute day of the first model).
 An experiment or comparison page embeds every run's records when they were
-kept, so the service day comparison (3 scenarios of 20 days) saves a 14.1 MB
-page, i.e., 4.8 MB of Plotly, 8.6 MB of records (0.14 MB per run), and 0.7 MB
+kept, so the service day comparison (3 scenarios of 20 days) saves a 10.8 MB
+page, i.e., 1.5 MB of Plotly, 8.6 MB of records (0.14 MB per run), and 0.7 MB
 of intervals, charts, and page code. With `keep_records=False`, the same page
-holds only the overview (5.5 MB). A Marimo notebook cannot display the page
-with records, since Marimo measures its frame as a 33.6 MB output, above the
-30 MB `output_max_bytes` that `pyproject.toml` sets, so a notebook saves that
-page and opens it in a browser. The overview-only page (13.3 MB in Marimo)
-displays.
+holds only the overview (2.2 MB). A Marimo notebook displays both pages under
+the 30 MB `output_max_bytes` that `pyproject.toml` sets. A comparison with more
+or longer runs can exceed that limit, in which case a notebook saves the page
+and opens it in a browser.
 Numeric outputs target classroom tables and plots, and LaTeX numeric exports
 are not included. FlowSim schedules events with its own scheduler
 (`flowsim/scheduler.py`) instead of a simulation library, and that scheduler was
