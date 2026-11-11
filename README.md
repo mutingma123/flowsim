@@ -281,7 +281,11 @@ isolated frame, and a script calls `.open()` to show it in a browser. The page
 works offline. It adds sources, stations, and the exit to a canvas, connects
 them with arrows, and treats two or more arrows from one node for the same
 customers as a probabilistic branch whose probabilities must sum to one. With
-customer types, a second arrow may join the same two nodes if each arrow carries
+customer types, drawing a node's second arrow opens the side panel on a choice
+between a split by probability and a split by customer type (e.g., new patients
+go from the source to a registration desk, while existing patients go to the
+check-in desk), and that panel sets the types of every arrow from the node. A
+second arrow may also join the same two nodes if each arrow carries
 different types (e.g., walk-ins always go from a desk to an exam room, while
 appointments branch from the desk to the exam room or the exit). A side
 panel edits every argument of `Model.source` and `Model.station`, i.e., each

@@ -122,7 +122,7 @@
     <h2 id="types-heading">Customer types</h2>
     <ul id="types-list"></ul>
     <button id="add-type" type="button">Add customer type</button>
-    <p class="help" id="types-help">Without types, every customer is alike. With types, each source sets its type mix, and each arrow can carry every type or only some.</p>
+    <p class="help" id="types-help">Without types, every customer is alike. With types, each source sets its type mix, and each arrow can carry every type or only some. A node's second arrow asks, in the side panel, whether its customers split by probability or by customer type.</p>
   </section>
 
   <div class="workspace">
@@ -412,6 +412,18 @@ function setEdgeTypes(edge, types) {
   renderAll();
 }
 
+// A node routes every type the same way or each type its own way, never both,
+// so the choice applies to every arrow that leaves it.
+function setRouting(origin, typed) {
+  record(null);
+  for (const edge of outgoing(origin)) edge.types = typed ? edge.types || [] : null;
+  for (const group of groupsOf(origin)) {
+    if (group.length > 1) shareSplit(group);
+  }
+  settleSingles(origin);
+  renderAll();
+}
+
 function uniqueName(base) {
   const taken = new Set(state.nodes.map((node) => node.name));
   let index = 1;
@@ -560,21 +572,35 @@ function addEdge(from, to) {
     return;
   }
   record(null);
-  // A second route between the same nodes starts with no type chosen, which
-  // Checks lists until the student picks its types.
+  // A second route between the same nodes, or a route from a node that already
+  // routes by customer type, starts with no type chosen, which Checks lists
+  // until the student picks its types.
   const second = state.edges.some((edge) => edge.from === from && edge.to === to);
-  const edge = {id: `e${state.next_edge}`, from, to, probability: "1", types: second ? [] : null};
+  const typed = second || outgoing(from).some((edge) => edge.types !== null);
+  const edge = {id: `e${state.next_edge}`, from, to, probability: "1", types: typed ? [] : null};
   state.next_edge += 1;
   state.edges.push(edge);
+  if (typed) {
+    for (const item of outgoing(from)) item.types = item.types || [];
+  }
   const group = groupOf(edge);
   if (group.length > 1) shareSplit(group);
+  // With customer types, a node's second arrow opens the choice between a
+  // split by probability and a split by customer type.
+  const choose = state.types.length > 0 && outgoing(from).length > 1;
+  if (choose) selection = {type: "edge", id: edge.id};
   showStatus("");
   renderAll();
+  if (!choose) {
+    announce(`Added a route from ${origin.name} to ${target.name}.`);
+    return;
+  }
   announce(
-    second
-      ? `Added a second route from ${origin.name} to ${target.name}. Choose its customer types.`
-      : `Added a route from ${origin.name} to ${target.name}.`,
+    typed
+      ? `Added a route from ${origin.name} to ${target.name}. Choose its customer types in the side panel.`
+      : `Added a route from ${origin.name} to ${target.name}. In the side panel, choose whether customers leaving ${origin.name} split by probability or by customer type.`,
   );
+  document.getElementById(typed ? "edge-types-some" : "edge-types-all").focus();
 }
 
 function edgeById(id) {
@@ -983,7 +1009,8 @@ document.addEventListener("focusout", () => {
 document.addEventListener("keydown", (event) => {
   const field = event.target.closest("input, select, textarea");
   const key = event.key.toLowerCase();
-  if ((event.ctrlKey || event.metaKey) && !field) {
+  const typing = event.target.closest('input:not([type="radio"]):not([type="checkbox"]), textarea');
+  if ((event.ctrlKey || event.metaKey) && !typing) {
     // A text field keeps the browser's own undo for its typing.
     if (key === "z" && !event.shiftKey) {
       undo();
@@ -1391,20 +1418,30 @@ function refreshSums() {
 
 function edgeTypeFields(edge) {
   if (!state.types.length) return "";
+  const routes = outgoing(edge.from);
+  const several = routes.length > 1;
+  const legend = several ? `How customers leaving ${escapeHtml(nodeById(edge.from).name)} choose a route` : "Customer types on this route";
   let html =
-    "<fieldset><legend>Customer types on this route</legend>" +
-    `<label class="choice"><input type="radio" name="edge-types" id="edge-types-all" data-edge-types="all"${edge.types === null ? " checked" : ""}> Every customer type</label>` +
-    `<label class="choice"><input type="radio" name="edge-types" id="edge-types-some" data-edge-types="some"${edge.types !== null ? " checked" : ""}> Only these types</label>`;
+    `<fieldset><legend>${legend}</legend>` +
+    `<label class="choice"><input type="radio" name="edge-types" id="edge-types-all" data-edge-types="all"${edge.types === null ? " checked" : ""}> ${several ? "By probability, the same for every customer type" : "Every customer type"}</label>` +
+    `<label class="choice"><input type="radio" name="edge-types" id="edge-types-some" data-edge-types="some"${edge.types !== null ? " checked" : ""}> ${several ? "By customer type" : "Only these types"}</label>`;
   if (edge.types !== null) {
-    for (const type of typeIds()) {
-      html +=
-        `<label class="choice" style="margin-left: 22px;"><input type="checkbox" id="edge-type-${type}" data-edge-type="${type}"${edge.types.includes(type) ? " checked" : ""}> ` +
-        `${escapeHtml(typeName(type))}</label>`;
+    // The selected arrow comes first, then the node's other typed arrows, so
+    // one panel sets the types of every arrow that leaves the node.
+    for (const item of [edge, ...routes.filter((other) => other !== edge && other.types !== null)]) {
+      const target = escapeHtml(nodeById(item.to).name);
+      if (several) html += `<p class="help" style="margin-left: 22px;"><strong>to ${target}</strong></p>`;
+      for (const type of typeIds()) {
+        const id = item === edge ? `edge-type-${type}` : `edge-type-${escapeHtml(item.id)}-${type}`;
+        html +=
+          `<label class="choice" style="margin-left: 22px;"><input type="checkbox" id="${id}" data-edge="${escapeHtml(item.id)}" data-edge-type="${type}"${item.types.includes(type) ? " checked" : ""}> ` +
+          `${escapeHtml(typeName(type))}</label>`;
+      }
     }
   }
   return (
     html +
-    '<p class="help">Arrows from one node with the same types form one route or a branch. A node routes every type the same way, or each type its own way, not both. Two arrows between the same nodes carry different types.</p></fieldset>'
+    '<p class="help">A node routes every type the same way (by probability when it has two or more arrows), or each type its own way, not both. Arrows from one node with the same types form one route or a branch. Two arrows between the same nodes carry different types.</p></fieldset>'
   );
 }
 
@@ -1504,12 +1541,13 @@ panel.addEventListener("change", (event) => {
   if (selection.type === "edge") {
     const edge = edgeById(selection.id);
     if (target.dataset.edgeTypes) {
-      setEdgeTypes(edge, target.dataset.edgeTypes === "all" ? null : []);
+      setRouting(edge.from, target.dataset.edgeTypes === "some");
     } else if (target.dataset.edgeType) {
-      const chosen = new Set(edge.types);
+      const item = edgeById(target.dataset.edge);
+      const chosen = new Set(item.types);
       if (target.checked) chosen.add(target.dataset.edgeType);
       else chosen.delete(target.dataset.edgeType);
-      setEdgeTypes(edge, typeIds().filter((id) => chosen.has(id)));
+      setEdgeTypes(item, typeIds().filter((id) => chosen.has(id)));
     } else {
       return;
     }
@@ -1550,8 +1588,9 @@ panel.addEventListener("click", (event) => {
   const target = event.target;
   if (target.id === "add-route") {
     addEdge(selection.id, document.getElementById("route-target").value);
-    // The panel was redrawn, so keyboard focus returns to the route controls.
-    (document.getElementById("route-target") || panel).focus();
+    // The panel was redrawn, so keyboard focus returns to the route controls,
+    // unless the new route opened its own panel to ask how customers split.
+    if (selection.type === "node") (document.getElementById("route-target") || panel).focus();
   } else if (target.classList.contains("remove-route")) {
     removeEdge(target.dataset.edge);
     (document.getElementById("route-target") || panel).focus();

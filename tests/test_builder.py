@@ -851,13 +851,38 @@ def test_builder_writes_customer_types_priorities_and_typed_routes(
     panel_route(page, customers, desk)
     panel_route(page, desk, exam)
     panel_route(page, desk, "exit")
-    panel_route(page, exam, "exit")
-    set_edge_types(page, desk, exam, ["t2"])
-    assert "some arrows carry every type and some only named types" in (
+    # Desk's second arrow opens its panel on the choice between a split by
+    # probability and a split by customer type, and that panel sets the types
+    # of both arrows.
+    assert page.evaluate("document.activeElement.id") == "edge-types-all"
+    assert "How customers leaving Desk choose a route" in (
+        page.locator("#panel").inner_text()
+    )
+    page.check("#edge-types-some")
+    assert "Route from Desk to Exam needs at least one customer type." in (
         problems_text(page)
     )
-    set_edge_types(page, desk, "exit", ["t1"])
+    (to_exam,) = edge_ids(page, desk, exam)
+    page.check(f"#edge-type-{to_exam}-t2")
+    page.check("#edge-type-t1")
+    panel_route(page, exam, "exit")
     assert "No problems found" in problems_text(page)
+    # Only a loaded file can mix an arrow for every type with typed arrows.
+    typed = page.evaluate("window.flowsimBuilder.state()")
+    mixed = json.loads(json.dumps(typed))
+    next(edge for edge in mixed["edges"] if (edge["from"], edge["to"]) == (desk, exam))[
+        "types"
+    ] = None
+    for name, data in (("mixed", mixed), ("typed", typed)):
+        saved = tmp_path / f"{name}.json"
+        saved.write_text(json.dumps(data), encoding="utf-8")
+        page.set_input_files("#load-json", str(saved))
+        wait_for_status(page, f"Loaded {name}.json.")
+        assert (
+            "some arrows carry every type and some only named types"
+            in problems_text(page)
+        ) == (name == "mixed")
+    select_edge(page, desk, "exit")
     page.uncheck("#edge-type-t1")
     assert "Desk has no route for type Walk-in, which can reach it from Customers." in (
         problems_text(page)
@@ -915,6 +940,77 @@ def test_builder_writes_customer_types_priorities_and_typed_routes(
     source = next(node for node in state["nodes"] if node["name"] == "Customers")
     assert source["mix"] == {"t1": 0.6}
     assert [edge["types"] for edge in state["edges"]] == [None, [], ["t1"], None]
+
+
+def test_builder_asks_how_a_source_splits_when_its_second_arrow_is_drawn(
+    tmp_path, engine_page
+):
+    page = open_builder(tmp_path, engine_page)
+    page.click("#add-type")
+    page.fill("#type-name-t1", "New")
+    page.click("#add-type")
+    page.fill("#type-name-t2", "Existing")
+    arrivals = add_node(
+        page,
+        kind="source",
+        name="Arrivals",
+        durations={"interarrival": ("constant", {"value": 5})},
+    )
+    page.fill("#field-mix-t1", "0.4")
+    page.fill("#field-mix-t2", "0.6")
+    stations = {
+        name: add_node(
+            page,
+            kind="station",
+            name=name,
+            fields={"capacity": 1},
+            durations={"service_time": ("constant", {"value": 2})},
+        )
+        for name in ("Registration", "Check-in")
+    }
+    registration, check_in = stations["Registration"], stations["Check-in"]
+    panel_route(page, registration, check_in)
+    panel_route(page, check_in, "exit")
+    # The first arrow carries every customer, so the page asks nothing.
+    drag_route(page, arrivals, registration)
+    assert page.locator("#panel h2").first.inner_text() != "Route"
+    # The second arrow opens its panel on the choice, which starts as a split
+    # by probability, and one undo step removes the arrow.
+    drag_route(page, arrivals, check_in)
+    assert page.locator("#panel h2").first.inner_text() == "Route"
+    assert page.evaluate("document.activeElement.id") == "edge-types-all"
+    assert "How customers leaving Arrivals choose a route" in (
+        page.locator("#panel").inner_text()
+    )
+    page.keyboard.press("Control+z")
+    assert edge_ids(page, arrivals, check_in) == []
+    page.keyboard.press("Control+y")
+    (to_registration,) = edge_ids(page, arrivals, registration)
+    (to_check_in,) = edge_ids(page, arrivals, check_in)
+    page.focus(f'.edge-hit[data-edge="{to_check_in}"]')
+    # A split by customer type lists both arrows in the one panel.
+    page.check("#edge-types-some")
+    page.check("#edge-type-t2")
+    page.check(f"#edge-type-{to_registration}-t1")
+    assert "No problems found" in problems_text(page)
+    code = page.locator("#code").text_content()
+    assert 'model.route([arrivals, registration], types=["New"])\n' in code
+    assert 'model.route([arrivals, check_in], types=["Existing"])\n' in code
+    # A split by probability clears the types of every arrow from the source.
+    page.check("#edge-types-all")
+    edges = page.evaluate("window.flowsimBuilder.state()")["edges"]
+    assert [
+        (edge["types"], edge["probability"])
+        for edge in edges
+        if edge["from"] == arrivals
+    ] == [(None, 0.5), (None, 0.5)]
+    # A third arrow from a node that routes by type starts with no type chosen.
+    page.check("#edge-types-some")
+    panel_route(page, arrivals, "exit")
+    assert page.evaluate("document.activeElement.id") == "edge-types-some"
+    assert "Route from Arrivals to Exit needs at least one customer type." in (
+        problems_text(page)
+    )
 
 
 def edge_ids(page, origin, target):
