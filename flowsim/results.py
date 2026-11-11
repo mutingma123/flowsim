@@ -62,14 +62,12 @@ from flowsim.records import (
     headline_first,
 )
 from flowsim.reporting import (
-    _write_metadata,
     dashboard,
     experiment_intervals,
     export_tables,
     interval_figure,
-    remove_stale_exports,
     request_metadata,
-    require_flowsim_folder,
+    write_export,
 )
 from flowsim.viewer import Viewer
 
@@ -1077,13 +1075,6 @@ class Results:
         >>> results.export("output/my-run")
         """
         self._require_records("export()")
-        destination = Path(directory)
-        require_flowsim_folder(destination)
-        destination.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-        names = self._table_names()
         capacities = self.settings.capacities
         assert capacities is not None
         metadata = {
@@ -1122,16 +1113,11 @@ class Results:
             metadata["shipment_arrivals"] = (
                 "Null for shipments still in transit at the end"
             )
-        # Metadata goes first, so an export interrupted while writing tables
-        # leaves a folder that a retry still recognizes as FlowSim's.
-        _write_metadata(destination / "metadata.json", metadata)
-        for name in names:
-            getattr(self, name).write_csv(destination / f"{name}.csv")
-        remove_stale_exports(
-            destination,
-            {f"{name}.csv" for name in names} | {"metadata.json"},
+        return write_export(
+            directory=directory,
+            tables={f"{name}.csv": getattr(self, name) for name in self._table_names()},
+            metadata=metadata,
         )
-        return destination
 
 
 class Experiment:

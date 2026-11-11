@@ -963,12 +963,6 @@ def export_tables(
     metadata: dict,
 ) -> Path:
     """Write pooled run tables, intervals, and metadata, removing stale files."""
-    destination = Path(directory)
-    require_flowsim_folder(destination)
-    destination.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
     tables = {
         "runs.csv": summary,
         "stations.csv": stations,
@@ -976,13 +970,32 @@ def export_tables(
         "intervals.csv": intervals,
         "differences.csv": differences,
     }
-    written = {name for name, table in tables.items() if table is not None}
+    return write_export(
+        directory=directory,
+        tables={name: table for name, table in tables.items() if table is not None},
+        metadata=metadata,
+    )
+
+
+def write_export(
+    directory: str | Path,
+    tables: dict[str, pl.DataFrame],
+    metadata: dict,
+) -> Path:
+    """Write metadata.json and each table to its file name, removing stale files."""
+    destination = Path(directory)
+    require_flowsim_folder(destination)
+    destination.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
     # Metadata goes first, so a request that cannot be written replaces no
-    # tables from an earlier export.
+    # tables from an earlier export, and an export interrupted while writing
+    # tables leaves a folder that a retry still recognizes as FlowSim's.
     _write_metadata(destination / "metadata.json", metadata)
-    for name in written:
-        tables[name].write_csv(destination / name)
-    remove_stale_exports(destination, written | {"metadata.json"})
+    for name, table in tables.items():
+        table.write_csv(destination / name)
+    remove_stale_exports(destination, set(tables) | {"metadata.json"})
     return destination
 
 
