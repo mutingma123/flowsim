@@ -8,6 +8,7 @@ import pytest
 import flowsim
 from flowsim import Model
 from flowsim.distributions import Distribution
+from flowsim.validation import cumulative_shares, draw_index
 
 
 def draws(distribution, count=5):
@@ -384,3 +385,28 @@ def test_a_shift_of_a_custom_distribution_exports_as_a_function(tmp_path):
 )
 def test_weibull_sd_matches_hand_values(shape, sd):
     assert flowsim.weibull(shape=shape, scale=10).sd == pytest.approx(sd, rel=1e-7)
+
+
+@pytest.mark.parametrize(
+    "probabilities",
+    [
+        [0.5, 0.5],
+        [0.3, 0.7],
+        [0.1, 0.2, 0.3, 0.4],
+        [1 / 3, 1 / 3, 1 / 3],
+        [1e-9, 0.5, 0.5 - 1e-9],
+    ],
+)
+def test_draw_index_gives_the_index_that_numpy_choice_gives(probabilities):
+    # Routing, type, and discrete draws search cumulative shares instead of
+    # calling Generator.choice. A NumPy release that changes choice fails here
+    # before it changes a seeded run.
+    shares = cumulative_shares(probabilities)
+    ours = np.random.default_rng(11)
+    theirs = np.random.default_rng(11)
+    for _ in range(2000):
+        assert draw_index(shares, ours) == theirs.choice(
+            len(probabilities),
+            p=probabilities,
+        )
+    assert ours.random() == theirs.random()

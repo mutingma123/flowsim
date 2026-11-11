@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import inspect
 import math
-from collections.abc import Callable
+from bisect import bisect_right
+from collections.abc import Callable, Sequence
 from numbers import Integral, Real
 
 import numpy as np
@@ -81,3 +82,22 @@ def sample(
         label=label,
         positive=positive,
     )
+
+
+def cumulative_shares(probabilities: Sequence[float] | np.ndarray) -> list[float]:
+    """Return the running totals of the probabilities, ending at one.
+
+    These are the totals that NumPy's ``Generator.choice(n, p=...)`` builds on
+    every call. ``draw_index`` searches them with one uniform draw, which gives
+    the index ``choice`` gives at about a twentieth of the cost per draw.
+    tests/test_distributions.py compares the two, so a NumPy release that
+    changes ``choice`` fails that test before it changes a seeded run.
+    """
+    totals = np.asarray(probabilities, dtype=float).cumsum()
+    totals /= totals[-1]
+    return totals.tolist()
+
+
+def draw_index(shares: list[float], rng: np.random.Generator) -> int:
+    """Draw an index with the probabilities behind ``cumulative_shares``."""
+    return bisect_right(shares, rng.random())

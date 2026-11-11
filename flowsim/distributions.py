@@ -25,6 +25,8 @@ from numbers import Real
 import numpy as np
 from scipy.special import zeta
 
+from flowsim.validation import cumulative_shares, draw_index
+
 
 def _bad(fn: str, rule: str, example: str, got: dict[str, object]) -> ValueError:
     shown = ", ".join(f"{name}={value!r}" for name, value in got.items())
@@ -832,8 +834,12 @@ class Discrete(Distribution):
             sum(p * (v - m) ** 2 for p, v in zip(self.probabilities, self.values))
         )
 
+    @functools.cached_property
+    def _shares(self) -> list[float]:
+        return cumulative_shares(self.probabilities)
+
     def __call__(self, rng):
-        return self.values[int(rng.choice(len(self.values), p=self.probabilities))]
+        return self.values[draw_index(self._shares, rng)]
 
     def describe(self) -> str:
         return (
