@@ -29,6 +29,8 @@ ABANDON_PRIORITY = 3
 class Event:
     """Something that happens once. Callbacks run when the event is processed."""
 
+    __slots__ = ("scheduler", "callbacks", "triggered", "value")
+
     def __init__(self, scheduler: Scheduler):
         self.scheduler = scheduler
         # None after processing, which is how callers tell "processed" apart
@@ -53,6 +55,8 @@ class AnyOf(Event):
     The value lists the events processed by the time this event is processed,
     so an event tied at the same time is included only if it was popped first.
     """
+
+    __slots__ = ("events",)
 
     def __init__(self, scheduler: Scheduler, events: list[Event]):
         super().__init__(scheduler)
@@ -80,6 +84,8 @@ def _raise(error: Exception, event: Event) -> None:
 
 
 class _Process:
+    __slots__ = ("scheduler", "generator")
+
     def __init__(self, scheduler: Scheduler, generator: Generator[Event, object, None]):
         self.scheduler = scheduler
         self.generator = generator

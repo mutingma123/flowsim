@@ -285,11 +285,7 @@ class _Run:
 
     def observe(self, name: str) -> None:
         """Record the state after a change, retaining the last state at ties."""
-        row = _State(
-            station=name,
-            time=float(self.scheduler.now),
-            **self.stations[name].state(),
-        )
+        row = self.stations[name].state(float(self.scheduler.now))
         history = self.histories[name]
         if history and history[-1].time == row.time:
             history[-1] = row

@@ -651,118 +651,117 @@ class Results:
         )
 
     def _system_metrics(self) -> pl.DataFrame:
-        eligible = self.customers.filter(pl.col("status") != Status.REJECTED)
-        cohort = eligible.filter(pl.col("arrival_time") >= self.settings.warmup)
-        finished = cohort.filter(pl.col("status") == Status.COMPLETED)
-        completed = eligible.get_column("exit_time").count()
-        rejected = self.customers.height - eligible.height
-        # Abandoned customers leave without service, so they are neither
-        # completed nor remaining, and their waits stay out of the averages.
-        abandoned = eligible.get_column("abandon_time").count()
-        abandoned_at_close = eligible.filter(
-            pl.col("abandon_time") < self.settings.duration
-        ).height
-        cohort_abandoned = cohort.get_column("abandon_time").count()
-        measurement_arrivals = self.customers.filter(
-            pl.col("arrival_time") >= self.settings.warmup
-        ).height
-        exits = self.customers.filter(
-            (pl.col("exit_time") >= self.settings.warmup)
-            & (pl.col("exit_time") < self.settings.duration)
-        ).height
-        completed_at_close = self.customers.filter(
-            pl.col("exit_time") < self.settings.duration
-        ).height
-        window = self.settings.duration - self.settings.warmup
-        # Sum each customer's presence clipped to the observation window.
+        # One query over the customers table gives every count.
+        warmup = self.settings.warmup
+        duration = self.settings.duration
+        status = pl.col("status")
+        eligible = status != Status.REJECTED
+        cohort = eligible & (pl.col("arrival_time") >= warmup)
+        finished = cohort & (status == Status.COMPLETED)
+        inside = eligible & pl.col("admission_time").is_not_null()
+        abandon = pl.col("abandon_time")
+        admission = pl.col("admission_time")
+        exit_time = pl.col("exit_time")
+        # Each customer's presence clipped to the observation window.
         # Customer*time / time gives the time-average work in process.
-        inside = eligible.filter(pl.col("admission_time").is_not_null())
-        presence = inside.select(
+        presence = (
+            pl.coalesce("exit_time", "abandon_time")
+            .fill_null(duration)
+            .clip(upper_bound=duration)
+            - admission.clip(lower_bound=warmup)
+        ).clip(lower_bound=0)
+        counts = self.customers.select(
+            pl.len().alias("arrivals"),
+            pl.col("admitted").sum().alias("admitted"),
+            (inside & (admission < duration)).sum().alias("admitted_at_close"),
             (
-                pl.coalesce("exit_time", "abandon_time")
-                .fill_null(self.settings.duration)
-                .clip(upper_bound=self.settings.duration)
-                - pl.col("admission_time").clip(lower_bound=self.settings.warmup)
+                eligible
+                & (admission.is_null() | (admission >= duration))
+                & (abandon.is_null() | (abandon >= duration))
             )
-            .clip(lower_bound=0)
             .sum()
-            .alias("presence")
-        ).item()
+            .alias("outside_at_close"),
+            eligible.sum().alias("eligible"),
+            exit_time.filter(eligible).count().alias("completed"),
+            # Abandoned customers leave without service, so they are neither
+            # completed nor remaining, and their waits stay out of the averages.
+            abandon.filter(eligible).count().alias("abandoned"),
+            (eligible & (abandon < duration)).sum().alias("abandoned_at_close"),
+            abandon.filter(cohort).count().alias("cohort_abandoned"),
+            (pl.col("arrival_time") >= warmup).sum().alias("measurement_arrivals"),
+            ((exit_time >= warmup) & (exit_time < duration)).sum().alias("exits"),
+            (exit_time < duration).sum().alias("completed_at_close"),
+            # A rejection happens at arrival, so both counts use the event's
+            # own time in [warmup, duration), as measurement_completions does.
+            ((status == Status.REJECTED) & (pl.col("arrival_time") >= warmup))
+            .sum()
+            .alias("measurement_rejected"),
+            # Abandonments count by their own time, like completions. The
+            # rate instead follows the customers who arrived after warm-up.
+            (eligible & (abandon >= warmup) & (abandon < duration))
+            .sum()
+            .alias("measurement_abandoned"),
+            (inside & (admission >= warmup) & (admission < duration))
+            .sum()
+            .alias("measurement_admitted"),
+            cohort.sum().alias("cohort"),
+            finished.sum().alias("finished"),
+        ).row(0, named=True)
+        # Float sums and means stay on filtered frames, as before, since a
+        # filtered expression can sum in a different order (last-bit changes).
+        done = self.customers.filter(finished)
+        for column in ["flow_time", "total_wait", "total_blocked", "outside_wait"]:
+            counts[f"mean_{column}"] = done.get_column(column).mean()
+        counts["presence"] = self.customers.filter(inside).select(presence.sum()).item()
+        window = duration - warmup
+        rejected = counts["arrivals"] - counts["eligible"]
         # A run's settings always record its end time.
         end_time = self.settings.end_time
         assert end_time is not None
         summary = pl.DataFrame(
             {
-                "arrivals": [self.customers.height],
-                "admitted": [self.customers.filter(pl.col("admitted")).height],
-                "admitted_at_close": [
-                    inside.filter(
-                        pl.col("admission_time") < self.settings.duration
-                    ).height
-                ],
-                "outside_at_close": [
-                    eligible.filter(
-                        (
-                            pl.col("admission_time").is_null()
-                            | (pl.col("admission_time") >= self.settings.duration)
-                        )
-                        & (
-                            pl.col("abandon_time").is_null()
-                            | (pl.col("abandon_time") >= self.settings.duration)
-                        )
-                    ).height
-                ],
+                "arrivals": [counts["arrivals"]],
+                "admitted": [counts["admitted"]],
+                "admitted_at_close": [counts["admitted_at_close"]],
+                "outside_at_close": [counts["outside_at_close"]],
                 "rejected": [rejected],
-                "abandoned": [abandoned],
-                "completed": [completed],
-                "remaining": [eligible.height - completed - abandoned],
-                "completed_at_close": [completed_at_close],
+                "abandoned": [counts["abandoned"]],
+                "completed": [counts["completed"]],
+                "remaining": [
+                    counts["eligible"] - counts["completed"] - counts["abandoned"]
+                ],
+                "completed_at_close": [counts["completed_at_close"]],
                 "remaining_at_close": [
-                    eligible.height - completed_at_close - abandoned_at_close
+                    counts["eligible"]
+                    - counts["completed_at_close"]
+                    - counts["abandoned_at_close"]
                 ],
-                "after_close_completions": [completed - completed_at_close],
+                "after_close_completions": [
+                    counts["completed"] - counts["completed_at_close"]
+                ],
                 "end_time": [end_time],
-                "overtime": [end_time - self.settings.duration],
-                "measurement_arrivals": [measurement_arrivals],
-                # A rejection happens at arrival, so both counts use the event's
-                # own time in [warmup, duration), as measurement_completions does.
-                "measurement_rejected": [
-                    self.customers.filter(
-                        (pl.col("status") == Status.REJECTED)
-                        & (pl.col("arrival_time") >= self.settings.warmup)
-                    ).height
-                ],
-                # Abandonments count by their own time, like completions. The
-                # rate instead follows the customers who arrived after warm-up.
-                "measurement_abandoned": [
-                    eligible.filter(
-                        (pl.col("abandon_time") >= self.settings.warmup)
-                        & (pl.col("abandon_time") < self.settings.duration)
-                    ).height
-                ],
+                "overtime": [end_time - duration],
+                "measurement_arrivals": [counts["measurement_arrivals"]],
+                "measurement_rejected": [counts["measurement_rejected"]],
+                "measurement_abandoned": [counts["measurement_abandoned"]],
                 "abandonment_rate": [
-                    cohort_abandoned / measurement_arrivals
-                    if measurement_arrivals
+                    counts["cohort_abandoned"] / counts["measurement_arrivals"]
+                    if counts["measurement_arrivals"]
                     else None
                 ],
-                "measurement_admitted": [
-                    inside.filter(
-                        (pl.col("admission_time") >= self.settings.warmup)
-                        & (pl.col("admission_time") < self.settings.duration)
-                    ).height
-                ],
-                "cohort_arrivals": [cohort.height],
-                "measurement_completions": [exits],
-                "cohort_completions": [finished.height],
+                "measurement_admitted": [counts["measurement_admitted"]],
+                "cohort_arrivals": [counts["cohort"]],
+                "measurement_completions": [counts["exits"]],
+                "cohort_completions": [counts["finished"]],
                 "cohort_remaining": [
-                    cohort.height - finished.height - cohort_abandoned
+                    counts["cohort"] - counts["finished"] - counts["cohort_abandoned"]
                 ],
-                "mean_flow_time": [finished.get_column("flow_time").mean()],
-                "mean_total_wait": [finished.get_column("total_wait").mean()],
-                "mean_total_blocked": [finished.get_column("total_blocked").mean()],
-                "mean_outside_wait": [finished.get_column("outside_wait").mean()],
-                "throughput": [exits / window],
-                "mean_wip": [presence / window],
+                "mean_flow_time": [counts["mean_flow_time"]],
+                "mean_total_wait": [counts["mean_total_wait"]],
+                "mean_total_blocked": [counts["mean_total_blocked"]],
+                "mean_outside_wait": [counts["mean_outside_wait"]],
+                "throughput": [counts["exits"] / window],
+                "mean_wip": [counts["presence"] / window],
             },
             schema_overrides={
                 "abandonment_rate": pl.Float64,
@@ -784,6 +783,8 @@ class Results:
         missing with fewer than two periods or constant demand.
         """
         names = self.stock_point_names
+        if not names:
+            return pl.DataFrame(schema=STOCK_POINT_SCHEMA)
         window = self.inventory.filter(pl.col("time") >= self.settings.warmup)
         measured = window.group_by("stock_point").agg(
             pl.len().alias("periods"),

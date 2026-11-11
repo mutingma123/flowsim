@@ -66,6 +66,10 @@ def sample(
     positive: bool = False,
 ) -> float:
     value = distribution(rng) if callable(distribution) else distribution
+    # Fast path for the common case, a finite float in range; anything else
+    # takes the full checks below, which raise the same errors as before.
+    if type(value) is float and 0 <= value < math.inf and (value or not positive):
+        return value
     if isinstance(value, np.ndarray):
         raise ValueError(
             f"{label} came back as an array {value!r}. A sampler returns one "

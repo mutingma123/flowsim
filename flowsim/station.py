@@ -17,6 +17,7 @@ from flowsim.records import (
     _Activity,
     _Customer,
     _Failure,
+    _State,
     _Visit,
 )
 from flowsim.scheduler import ABANDON_PRIORITY, SHIFT_PRIORITY, Event
@@ -35,7 +36,7 @@ PHASE_STATUS = {
 
 
 # Tickets compare by identity, so removing one from a line removes that ticket.
-@dataclass(eq=False)
+@dataclass(eq=False, slots=True)
 class _Ticket:
     customer: _Customer
     admitted: Event
@@ -56,6 +57,20 @@ class _Server:
     The changed event succeeds on every phase, schedule, or repair change, which
     wakes any countdown that runs on this server.
     """
+
+    __slots__ = (
+        "station",
+        "run",
+        "id",
+        "scheduled",
+        "down",
+        "ticket",
+        "phase",
+        "activity",
+        "changed",
+        "failure_rng",
+        "repair_rng",
+    )
 
     def __init__(self, station: _Station, identifier: int, seeds):
         self.station = station
@@ -259,7 +274,7 @@ class _Station:
             self.dispatch()
             self.run.observe(self.node.name)
 
-    def state(self) -> dict:
+    def state(self, time: float) -> _State:
         """Count customers and servers in each condition, visiting each server once."""
         busy = processing = blocked = paused = down = scheduled = available = 0
         for server in self.servers:
@@ -270,17 +285,19 @@ class _Station:
             down += server.down
             scheduled += server.scheduled
             available += server.available
-        return {
-            "waiting": len(self.waiting),
-            "busy": busy,
-            "processing": processing,
-            "blocked": blocked,
-            "paused": paused,
-            "down": down,
-            "scheduled": scheduled,
-            "available": available,
-            "outside": self.outside,
-        }
+        return _State(
+            station=self.node.name,
+            time=time,
+            waiting=len(self.waiting),
+            busy=busy,
+            processing=processing,
+            blocked=blocked,
+            paused=paused,
+            down=down,
+            scheduled=scheduled,
+            available=available,
+            outside=self.outside,
+        )
 
     def room(self) -> bool:
         if any(server.idle for server in self.servers) and not self.waiting:
