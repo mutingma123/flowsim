@@ -172,7 +172,7 @@ METRICS = {
         label="Admitted customers",
         kind="customers",
         window="whole run",
-        meaning="Customers admitted to the first station, including admissions after closing.",
+        meaning="Customers admitted to the first station, including admissions after closing. A customer routed from the source straight to the exit counts as admitted on arrival.",
     ),
     "measurement_rejected": Metric(
         scope="system",
@@ -687,7 +687,7 @@ _SCHEMA_COLUMNS = {
             "time unit",
         ),
         "admitted": (
-            "Whether the customer was admitted to the first station.",
+            "Whether the customer was admitted to the first station. A customer routed from the source straight to the exit counts as admitted on arrival.",
             "true/false",
         ),
         "admission_time": (

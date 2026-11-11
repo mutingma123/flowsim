@@ -1418,7 +1418,7 @@ model's time unit.
 | `overtime` | System | time unit | whole run | Time from closing to the end of the run, i.e., end_time minus duration, which is zero in a run that is not drained and in a drained run whose customers all finish by closing. |
 | `mean_wip` | System | count | [warmup, duration) | Time-average number of admitted customers in the system, which excludes customers still waiting outside the first station. |
 | `rejected` | System | count | whole run | Arrivals that were rejected on arrival. |
-| `admitted` | System | count | whole run | Customers admitted to the first station, including admissions after closing. |
+| `admitted` | System | count | whole run | Customers admitted to the first station, including admissions after closing. A customer routed from the source straight to the exit counts as admitted on arrival. |
 | `measurement_rejected` | System | count | [warmup, duration) | Arrivals at or after warmup that were rejected on arrival. |
 | `measurement_admitted` | System | count | [warmup, duration) | Customers admitted to the first station during the operating window. |
 | `abandonment_rate` | System | share | arrivals at or after warmup, including rejected arrivals | Share of arrivals at or after warmup, counting rejected arrivals in the denominator, who abandoned at any time in the run, including after closing in a drained run. |
@@ -1494,7 +1494,7 @@ metric, and "data unit" means the units of the fitted data.
 | `flow_time` | time unit | Time from arrival to exit, empty if the customer did not exit. |
 | `total_wait` | time unit | Total of the customer's completed waits before service, including any wait outside the first station. |
 | `total_blocked` | time unit | Total time the customer was held at a station after service because the next station could not accept it, counting only blocking that had ended. |
-| `admitted` | true/false | Whether the customer was admitted to the first station. |
+| `admitted` | true/false | Whether the customer was admitted to the first station. A customer routed from the source straight to the exit counts as admitted on arrival. |
 | `admission_time` | time unit | Time the customer was admitted to the first station, empty if never admitted. |
 | `outside_wait` | time unit | Time from arrival to admission, which is zero for a customer admitted on arrival and empty for a customer never admitted. |
 | `status` | label | The customer's status at the end of the run: outside, waiting, in_service, blocked, paused, rejected, abandoned, or completed. |
