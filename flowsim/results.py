@@ -27,15 +27,16 @@ from flowsim.display import (
     window_line,
 )
 from flowsim.plots import (
+    inventory_figure,
+    orders_figure,
     plot_customer,
-    plot_inventory,
-    plot_orders,
-    plot_queue,
-    plot_resources,
-    plot_utilization,
-    plot_wait,
+    plotly_figure,
+    queue_figure,
     require_stations,
+    resources_figure,
     run_page_html,
+    utilization_figure,
+    wait_figure,
 )
 from flowsim.records import (
     ACTIVITY_SCHEMA,
@@ -871,7 +872,7 @@ class Results:
         self._require_records("plot_queue()")
         require_stations(self)
 
-        return plot_queue(self, station=station)
+        return plotly_figure(queue_figure(self, station=station))
 
     def plot_wait(self, station: str | None = None) -> Figure:
         """Plot the waiting-time histogram of station arrivals after warm-up.
@@ -893,7 +894,7 @@ class Results:
         self._require_records("plot_wait()")
         require_stations(self)
 
-        return plot_wait(self, station=station)
+        return plotly_figure(wait_figure(self, station=station))
 
     def plot_utilization(self, station: str | None = None) -> Figure:
         """Plot each station's occupied share of capacity, or one station's.
@@ -915,7 +916,7 @@ class Results:
         self._require_records("plot_utilization()")
         require_stations(self)
 
-        return plot_utilization(self, station=station)
+        return plotly_figure(utilization_figure(self, station=station))
 
     def plot_resources(
         self,
@@ -953,10 +954,12 @@ class Results:
         self._require_records("plot_resources()")
         require_stations(self)
 
-        return plot_resources(
-            self,
-            station=station,
-            stacked=stacked,
+        return plotly_figure(
+            resources_figure(
+                self,
+                station=station,
+                stacked=stacked,
+            )
         )
 
     def plot_customer(self, customer_id: int) -> Figure:
@@ -1000,7 +1003,7 @@ class Results:
         >>> results.plot_inventory("Store").show()
         """
         self._require_records("plot_inventory()")
-        return plot_inventory(self, stock_point=stock_point)
+        return plotly_figure(inventory_figure(self, stock_point=stock_point))
 
     def plot_orders(self) -> Figure:
         """Plot consumer demand and every stage's orders, which shows the bullwhip.
@@ -1015,7 +1018,7 @@ class Results:
         >>> results.plot_orders().show()
         """
         self._require_records("plot_orders()")
-        return plot_orders(self)
+        return plotly_figure(orders_figure(self))
 
     def viewer(self, path: str | Path | None = None) -> Viewer:
         """Build the offline results page, saving it when a path is given.
@@ -1348,15 +1351,17 @@ class Experiment:
         -------
         >>> experiment.plot("mean_total_wait").show()
         """
-        return interval_figure(
-            table=self.intervals(
+        return plotly_figure(
+            interval_figure(
+                table=self.intervals(
+                    metric=metric,
+                    station=station,
+                    stock_point=stock_point,
+                    confidence=confidence,
+                ),
                 metric=metric,
-                station=station,
-                stock_point=stock_point,
-                confidence=confidence,
-            ),
-            metric=metric,
-            time_unit=self.settings.time_unit,
+                time_unit=self.settings.time_unit,
+            )
         )
 
     def viewer(
@@ -1490,7 +1495,7 @@ class PageExperiment(Experiment):
     """An experiment whose pooled tables are built once, for one page.
 
     Experiment rebuilds each pooled table on every access, so estimates always
-    read the runs' current values. A dashboard reads them hundreds of times
+    read the runs' current values. A dashboard reads one for every metric
     while it is built, and the page is a snapshot of the runs anyway.
     """
 

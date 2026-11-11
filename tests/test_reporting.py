@@ -162,12 +162,14 @@ def test_experiment_plot_draws_one_point_per_location(experiment):
 )
 def test_replication_figure_pads_its_y_range_below_zero(values, expected):
     scenarios = list(values)
-    figure = reporting.replication_figure(
-        values=values,
-        scenarios=scenarios,
-        metric="mean_wait",
-        place=None,
-        time_unit="minutes",
+    figure = plots.plotly_figure(
+        reporting.replication_figure(
+            values=values,
+            scenarios=scenarios,
+            metric="mean_wait",
+            place=None,
+            time_unit="minutes",
+        )
     )
     axis = figure.layout.yaxis
     assert list(axis.range) == pytest.approx(expected)
@@ -189,35 +191,41 @@ def test_replication_figure_pads_its_y_range_below_zero(values, expected):
     ],
 )
 def test_replication_figure_puts_units_on_a_second_line(metric, place, title):
-    figure = reporting.replication_figure(
-        values={None: [0.5, 0.8]},
-        scenarios=[None],
-        metric=metric,
-        place=place,
-        time_unit="minutes",
+    figure = plots.plotly_figure(
+        reporting.replication_figure(
+            values={None: [0.5, 0.8]},
+            scenarios=[None],
+            metric=metric,
+            place=place,
+            time_unit="minutes",
+        )
     )
     assert figure.layout.yaxis.title.text == title
 
 
 @pytest.mark.parametrize(("runs", "dtick"), [(3, 1), (10, 1), (11, None)])
 def test_replication_figure_labels_whole_replications_up_to_ten(runs, dtick):
-    figure = reporting.replication_figure(
-        values={"A": [1.0] * runs, "B": [2.0] * (runs - 1)},
-        scenarios=["A", "B"],
-        metric="mean_wait",
-        place=None,
-        time_unit="minutes",
+    figure = plots.plotly_figure(
+        reporting.replication_figure(
+            values={"A": [1.0] * runs, "B": [2.0] * (runs - 1)},
+            scenarios=["A", "B"],
+            metric="mean_wait",
+            place=None,
+            time_unit="minutes",
+        )
     )
     assert figure.layout.xaxis.dtick == dtick
 
 
 def test_replication_figure_without_values_keeps_plotly_autorange():
-    figure = reporting.replication_figure(
-        values={None: [None, None]},
-        scenarios=[None],
-        metric="mean_wait",
-        place=None,
-        time_unit="minutes",
+    figure = plots.plotly_figure(
+        reporting.replication_figure(
+            values={None: [None, None]},
+            scenarios=[None],
+            metric="mean_wait",
+            place=None,
+            time_unit="minutes",
+        )
     )
     assert figure.layout.yaxis.range is None
     assert figure.layout.yaxis.autorangeoptions.minallowed is None
@@ -225,13 +233,15 @@ def test_replication_figure_without_values_keeps_plotly_autorange():
 
 def test_style_keeps_earlier_layout_and_replaces_what_it_sets():
     def menu_figure():
-        figure = go.Figure(
-            data=[
-                go.Scatter(x=[1], y=[1], meta="Cut"),
-                go.Scatter(x=[1], y=[2], meta="Pack"),
-            ]
-        )
-        plots.station_menu(figure, ["Cut", "Pack"])
+        data = {
+            "data": [
+                {"type": "scatter", "x": [1], "y": [1], "meta": "Cut"},
+                {"type": "scatter", "x": [1], "y": [2], "meta": "Pack"},
+            ],
+            "layout": {},
+        }
+        plots.station_menu(data, ["Cut", "Pack"])
+        figure = go.Figure(data)
         figure.update_layout(
             height=300,
             showlegend=False,
@@ -256,13 +266,6 @@ def test_style_keeps_earlier_layout_and_replaces_what_it_sets():
     assert layout.height == 500
     assert layout.margin.l == 85
     assert layout.template == pio.templates["plotly_white"]
-    # A page holds the template once, so its figures carry none.
-    with plots.building_page():
-        page = plots.page_figure(
-            plots.style(menu_figure(), x_label="Wait", y_label="Count")
-        )
-    assert "template" not in page["layout"]
-    assert len(page["layout"]["updatemenus"][0]["buttons"]) == 2
 
 
 def test_comparison_plot_names_scenario_and_station_when_several(comparison):

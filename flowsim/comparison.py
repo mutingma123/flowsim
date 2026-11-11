@@ -17,6 +17,7 @@ from flowsim.display import (
     window_line,
 )
 from flowsim.model import Model
+from flowsim.plots import plotly_figure
 from flowsim.reporting import (
     comparison_differences,
     comparison_intervals,
@@ -309,11 +310,13 @@ class Comparison:
                 confidence=confidence,
             )
         )
-        return interval_figure(
-            table=table,
-            metric=metric,
-            time_unit=self.settings.time_unit,
-            differences=differences,
+        return plotly_figure(
+            interval_figure(
+                table=table,
+                metric=metric,
+                time_unit=self.settings.time_unit,
+                differences=differences,
+            )
         )
 
     def viewer(

@@ -1,17 +1,27 @@
-"""Plotly figures, model diagrams, and page data, with no notebook dependency."""
+"""Plotly figures and page data, with no notebook dependency.
+
+A function named ..._figure returns a figure as plain data, a dict of "data"
+(the traces) and "layout" as Plotly's JSON holds them. A viewer page embeds
+that dict as it is, and the plot methods wrap the same dict with
+plotly_figure, so each figure is defined once. Building Plotly objects for the
+hundreds of figures a dashboard holds cost most of its build time.
+"""
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import contextvars
 import functools
 import html
 import json
+import math
 import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import plotly.graph_objects as go
 import polars as pl
 
@@ -20,8 +30,6 @@ from flowsim.records import Phase, Status
 from flowsim.validation import integer
 
 if TYPE_CHECKING:
-    import numpy as np
-
     from flowsim.results import Results
 
 BLUE = "#0072B2"
@@ -47,15 +55,13 @@ def label(text: str) -> str:
     return html.escape(text, quote=False)
 
 
-# True while a page is built. A page holds the shared template once and adds it
-# back in the browser, and setting it costs about 7 ms per figure, which a
-# dashboard's hundreds of figures turn into many seconds.
+# True while a page is built, when trace columns become typed arrays.
 _BUILDING_PAGE = contextvars.ContextVar("building_page", default=False)
 
 
 @contextlib.contextmanager
 def building_page() -> Iterator[None]:
-    """Leave the shared template out of figures styled inside the block."""
+    """Write the trace columns of figures built inside the block as typed arrays."""
     token = _BUILDING_PAGE.set(True)
     try:
         yield
@@ -63,25 +69,95 @@ def building_page() -> Iterator[None]:
         _BUILDING_PAGE.reset(token)
 
 
-def trace_values(values: pl.Series) -> list | np.ndarray:
-    """Return a record column for a trace: an array on a page, a list otherwise.
+# plotly.js names the typed arrays it reads by these codes.
+TYPED_ARRAY_CODES = {
+    "int8": "i1",
+    "uint8": "u1",
+    "int16": "i2",
+    "uint16": "u2",
+    "int32": "i4",
+    "uint32": "u4",
+    "float32": "f4",
+    "float64": "f8",
+}
 
-    Plotly writes an array as compact base64 data, which keeps run pages small
-    and fast to write. A column with a null or NaN stays a list, so its gaps
-    reach the page as they always have. Figures returned to users hold lists.
+
+def typed_array(values: np.ndarray) -> dict | list:
+    """Encode an array as plotly.js typed-array data, as Plotly's own JSON does.
+
+    plotly.js has no 64-bit integers, so an int64 array takes the smallest
+    integer type that holds it. An empty array, or one that no typed array
+    holds, stays a list.
     """
-    if not _BUILDING_PAGE.get() or values.null_count() > 0:
+    if values.size == 0:
+        return []
+    if values.dtype == np.int64:
+        smaller = [
+            kind
+            for kind in [np.int8, np.int16, np.int32]
+            if np.iinfo(kind).min <= values.min() and values.max() <= np.iinfo(kind).max
+        ]
+        if not smaller:
+            return values.tolist()
+        values = values.astype(smaller[0])
+    code = TYPED_ARRAY_CODES.get(str(values.dtype))
+    if code is None:
+        return values.tolist()
+    return {
+        "dtype": code,
+        "bdata": base64.b64encode(np.ascontiguousarray(values)).decode("ascii"),
+    }
+
+
+def trace_values(values: pl.Series) -> list | dict:
+    """Return a record column for a trace: a typed array on a page, a list otherwise.
+
+    A typed array is compact base64 data, which keeps run pages small and fast
+    to write. A column with a null or NaN stays a list on a page, with NaN and
+    infinite values as None, as Plotly's own JSON writes them. Figures
+    returned to users hold lists.
+    """
+    if not _BUILDING_PAGE.get():
         return values.to_list()
-    if values.dtype.is_float() and values.is_nan().any():
-        return values.to_list()
-    return values.to_numpy()
+    if values.null_count() > 0 or (values.dtype.is_float() and values.is_nan().any()):
+        return [
+            None if value is not None and not math.isfinite(value) else value
+            for value in values.to_list()
+        ]
+    return typed_array(values.to_numpy())
+
+
+def base_layout(x_label: str, y_label: str) -> dict:
+    """Return FlowSim's size, font, axis titles, margins, and legend as layout data."""
+    return {
+        "width": 800,
+        "height": 500,
+        "font": {"family": "Georgia, serif", "size": 14},
+        "xaxis": {"title": {"text": label(x_label)}, "rangemode": "tozero"},
+        "yaxis": {"title": {"text": label(y_label)}, "rangemode": "tozero"},
+        "margin": {"l": 85, "r": 30, "t": 35, "b": 70},
+        "legend": {"orientation": "h", "y": 1.14, "x": 0},
+        "hovermode": "closest",
+    }
+
+
+def plotly_figure(figure: dict) -> go.Figure:
+    """Wrap a figure's data in a Plotly figure with the plotly_white template.
+
+    A page holds that template once (see page_template) and adds it to each
+    figure it draws, so its figures leave it out.
+    """
+    return go.Figure(
+        data=figure["data"],
+        layout={**figure["layout"], "template": "plotly_white"},
+    )
 
 
 def _merged(base: dict, extra: dict) -> dict:
     """Return base updated with extra, as Plotly's update_layout merges them.
 
     A dict merges into an existing dict, and any other value replaces the old
-    one, so an axis title string replaces the whole title.
+    one.
     """
     merged = dict(base)
     for key, value in extra.items():
@@ -93,34 +169,45 @@ def _merged(base: dict, extra: dict) -> dict:
 
 
 def style(figure: go.Figure, x_label: str, y_label: str) -> go.Figure:
-    """Give a figure FlowSim's size, font, axes, margins, and legend.
+    """Give a Plotly figure base_layout's values and the plotly_white template.
 
     The figure gets one new Layout, its own layout merged with these values,
     because update_layout costs about three times as much per figure. Layout
-    set before (e.g., a station menu) is kept. The merge leaves out the
-    template, since validating it again is slow. Plotly gives a page figure
-    its default template back, which page_figure drops, and any other figure
-    gets plotly_white.
+    set before (e.g., a legend position) is kept, but the new axis titles
+    replace the old ones whole. The merge leaves out the old template, since
+    validating it again is slow.
     """
-    shared = {
-        "width": 800,
-        "height": 500,
-        "font": {"family": "Georgia, serif", "size": 14},
-        "xaxis": {"title": label(x_label), "rangemode": "tozero"},
-        "yaxis": {"title": label(y_label), "rangemode": "tozero"},
-        "margin": {"l": 85, "r": 30, "t": 35, "b": 70},
-        "legend": {"orientation": "h", "y": 1.14, "x": 0},
-        "hovermode": "closest",
-    }
-    if not _BUILDING_PAGE.get():
-        shared["template"] = "plotly_white"
     layout = figure.layout.to_plotly_json()
     layout.pop("template", None)
+    for axis in ["xaxis", "yaxis"]:
+        layout.get(axis, {}).pop("title", None)
+    shared = {**base_layout(x_label, y_label), "template": "plotly_white"}
     figure.layout = go.Layout(_merged(layout, shared))
     return figure
 
 
-def station_menu(figure: go.Figure, stations: list[str]) -> None:
+def dashed_line(figure: dict, x: float) -> None:
+    """Add a dashed gray vertical line at x, as Plotly's add_vline draws it."""
+    figure["layout"].setdefault("shapes", []).append(
+        {
+            "type": "line",
+            "x0": x,
+            "x1": x,
+            "xref": "x",
+            "y0": 0,
+            "y1": 1,
+            "yref": "y domain",
+            "line": {"color": GRAY, "dash": "dash"},
+        }
+    )
+
+
+def warmup_line(figure: dict, result: Results) -> None:
+    if result.settings.warmup > 0:
+        dashed_line(figure, result.settings.warmup)
+
+
+def station_menu(figure: dict, stations: list[str]) -> None:
     """Add a station menu that shows the traces whose meta names that station.
 
     The viewer's station choice selects traces by the same meta value.
@@ -131,22 +218,15 @@ def station_menu(figure: go.Figure, stations: list[str]) -> None:
         {
             "label": label(station),
             "method": "update",
-            # Plotly's own code makes Pyright infer figure.data as a Figure,
-            # but it is the tuple of traces.
             "args": [
-                {
-                    "visible": [
-                        trace.meta == station  # pyright: ignore[reportAttributeAccessIssue]
-                        for trace in figure.data
-                    ]
-                }
+                {"visible": [trace.get("meta") == station for trace in figure["data"]]}
             ],
         }
         for station in stations
     ]
-    figure.update_layout(
-        updatemenus=[{"buttons": buttons, "x": 1, "y": 1.16, "xanchor": "right"}],
-    )
+    figure["layout"]["updatemenus"] = [
+        {"buttons": buttons, "x": 1, "y": 1.16, "xanchor": "right"}
+    ]
 
 
 def require_stations(result: Results) -> None:
@@ -207,57 +287,61 @@ def chosen_stock_points(result: Results, stock_point: str | None) -> list[str]:
     return [stock_point]
 
 
-def plot_queue(result: Results, station: str | None = None) -> go.Figure:
-    """Plot waiting customers and occupied servers over time at each station.
+def queue_figure(result: Results, station: str | None = None) -> dict:
+    """Return waiting customers and occupied servers over time at each station.
 
     Without a station, a menu chooses among the stations, and the first is
     shown. A named station is the only one drawn.
     """
     names = chosen_stations(result, station)
-    figure = go.Figure()
+    figure = {
+        "data": [],
+        "layout": base_layout(
+            x_label=f"Simulation time ({result.settings.time_unit})",
+            y_label="Customers",
+        ),
+    }
     for index, place in enumerate(names):
         history = result.states.filter(pl.col("station") == place)
         for field, color, name in [
             ("waiting", BLUE, "Waiting"),
             ("busy", ORANGE, "Occupied servers"),
         ]:
-            figure.add_trace(
-                go.Scatter(
-                    x=trace_values(history.get_column("time")),
-                    y=trace_values(history.get_column(field)),
-                    name=name,
-                    mode="lines",
-                    line={"shape": "hv", "color": color, "width": 2},
-                    visible=index == 0,
-                    meta=place,
-                    hovertemplate=f"%{{x:.2f}} {label(result.settings.time_unit)}"
+            figure["data"].append(
+                {
+                    "type": "scatter",
+                    "x": trace_values(history.get_column("time")),
+                    "y": trace_values(history.get_column(field)),
+                    "name": name,
+                    "mode": "lines",
+                    "line": {"shape": "hv", "color": color, "width": 2},
+                    "visible": index == 0,
+                    "meta": place,
+                    "hovertemplate": f"%{{x:.2f}} {label(result.settings.time_unit)}"
                     "<br>%{y} customers<extra>%{fullData.name}</extra>",
-                )
+                }
             )
     station_menu(
         figure=figure,
         stations=names if station is None else [],
     )
-    style(
-        figure=figure,
-        x_label=f"Simulation time ({result.settings.time_unit})",
-        y_label="Customers",
-    )
-    figure.update_xaxes(rangeslider={"visible": True, "thickness": 0.1})
+    figure["layout"]["xaxis"]["rangeslider"] = {"visible": True, "thickness": 0.1}
     if result.settings.drain:
-        figure.add_vline(
-            x=result.settings.duration,
-            line_color=GRAY,
-            line_dash="dash",
-        )
+        dashed_line(figure, result.settings.duration)
     warmup_line(figure, result)
     return figure
 
 
-def plot_wait(result: Results, station: str | None = None) -> go.Figure:
-    """Plot each station's observed waits for station arrivals after warm-up."""
+def wait_figure(result: Results, station: str | None = None) -> dict:
+    """Return each station's observed waits for station arrivals after warm-up."""
     names = chosen_stations(result, station)
-    figure = go.Figure()
+    figure = {
+        "data": [],
+        "layout": base_layout(
+            x_label=f"Waiting time ({result.settings.time_unit})",
+            y_label="Customers",
+        ),
+    }
     for index, place in enumerate(names):
         waits = trace_values(
             result.visits.filter(
@@ -266,52 +350,44 @@ def plot_wait(result: Results, station: str | None = None) -> go.Figure:
                 & pl.col("wait_time").is_not_null()
             ).get_column("wait_time")
         )
-        figure.add_trace(
-            go.Histogram(
-                x=waits,
-                name=label(place),
-                visible=index == 0,
-                meta=place,
-                marker={"color": BLUE, "line": {"color": "black", "width": 1}},
-                hovertemplate="Wait bin: %{x}<br>Customers: %{y}<extra></extra>",
-            )
+        figure["data"].append(
+            {
+                "type": "histogram",
+                "x": waits,
+                "name": label(place),
+                "visible": index == 0,
+                "meta": place,
+                "marker": {"color": BLUE, "line": {"color": "black", "width": 1}},
+                "hovertemplate": "Wait bin: %{x}<br>Customers: %{y}<extra></extra>",
+            }
         )
     station_menu(
         figure=figure,
         stations=names if station is None else [],
     )
-    figure.update_layout(showlegend=False)
-    return style(
-        figure=figure,
-        x_label=f"Waiting time ({result.settings.time_unit})",
-        y_label="Customers",
-    )
+    figure["layout"]["showlegend"] = False
+    return figure
 
 
-def plot_utilization(result: Results, station: str | None = None) -> go.Figure:
-    """Plot each station's occupied share of installed capacity, or one station's."""
+def utilization_figure(result: Results, station: str | None = None) -> dict:
+    """Return each station's occupied share of installed capacity, or one station's."""
     names = chosen_stations(result, station)
     stations = result.stations.filter(pl.col("station").is_in(names))
-    figure = go.Figure(
-        go.Scatter(
-            x=trace_values(stations.get_column("utilization")),
-            y=[label(name) for name in stations.get_column("station")],
-            mode="markers",
-            marker={"size": 12, "color": BLUE, "line": {"color": "black", "width": 1}},
-            hovertemplate="%{y}<br>Occupied capacity: %{x:.1%}<extra></extra>",
-        )
-    )
-    style(
-        figure=figure,
+    layout = base_layout(
         x_label="Occupied server capacity",
         y_label="Station",
     )
-    figure.update_xaxes(
-        range=[0, 1.05],
-        tickformat=".0%",
-    )
-    figure.update_layout(height=max(220, 150 + 40 * len(names)))
-    return figure
+    layout["xaxis"].update(range=[0, 1.05], tickformat=".0%")
+    layout["height"] = max(220, 150 + 40 * len(names))
+    trace = {
+        "type": "scatter",
+        "x": trace_values(stations.get_column("utilization")),
+        "y": [label(name) for name in stations.get_column("station")],
+        "mode": "markers",
+        "marker": {"size": 12, "color": BLUE, "line": {"color": "black", "width": 1}},
+        "hovertemplate": "%{y}<br>Occupied capacity: %{x:.1%}<extra></extra>",
+    }
+    return {"data": [trace], "layout": layout}
 
 
 # Server-state lines in legend order, with their colors and dashes.
@@ -426,12 +502,12 @@ def server_layers(result: Results, station: str) -> pl.DataFrame:
     )
 
 
-def plot_resources(
+def resources_figure(
     result: Results,
     station: str | None = None,
     stacked: bool = False,
-) -> go.Figure:
-    """Plot each station's server states over time, as lines or stacked.
+) -> dict:
+    """Return each station's server states over time, as lines or stacked.
 
     The lines are the states table's processing, blocked, paused, down,
     available, and scheduled counts, which overlap (e.g., a down server
@@ -440,7 +516,13 @@ def plot_resources(
     scheduled count as a dashed line over the stack.
     """
     names = chosen_stations(result, station)
-    figure = go.Figure()
+    figure = {
+        "data": [],
+        "layout": base_layout(
+            x_label=f"Simulation time ({result.settings.time_unit})",
+            y_label="Servers",
+        ),
+    }
     hover = "%{x:.2f} " + label(result.settings.time_unit)
     for index, place in enumerate(names):
         history = result.states.filter(pl.col("station") == place)
@@ -448,21 +530,22 @@ def plot_resources(
         if stacked:
             layers = server_layers(result, place)
             for field, color, name in RESOURCE_LAYERS:
-                figure.add_trace(
-                    go.Scatter(
-                        x=times,
-                        y=trace_values(layers.get_column(field)),
-                        name=name,
-                        mode="lines",
+                figure["data"].append(
+                    {
+                        "type": "scatter",
+                        "x": times,
+                        "y": trace_values(layers.get_column(field)),
+                        "name": name,
+                        "mode": "lines",
                         # Each station stacks its own layers.
-                        stackgroup=f"station {index}",
-                        line={"shape": "hv", "color": color, "width": 0.5},
-                        fillcolor=color,
-                        visible=index == 0,
-                        meta=place,
-                        hovertemplate=hover
+                        "stackgroup": f"station {index}",
+                        "line": {"shape": "hv", "color": color, "width": 0.5},
+                        "fillcolor": color,
+                        "visible": index == 0,
+                        "meta": place,
+                        "hovertemplate": hover
                         + "<br>%{y} servers<extra>%{fullData.name}</extra>",
-                    )
+                    }
                 )
         lines = (
             [line for line in RESOURCE_LINES if line[0] == "scheduled"]
@@ -470,38 +553,30 @@ def plot_resources(
             else RESOURCE_LINES
         )
         for field, color, name, dash in lines:
-            figure.add_trace(
-                go.Scatter(
-                    x=times,
-                    y=trace_values(history.get_column(field)),
-                    name=name,
-                    mode="lines",
-                    line={"shape": "hv", "color": color, "width": 2, "dash": dash},
-                    visible=index == 0,
-                    meta=place,
-                    hovertemplate=hover
+            figure["data"].append(
+                {
+                    "type": "scatter",
+                    "x": times,
+                    "y": trace_values(history.get_column(field)),
+                    "name": name,
+                    "mode": "lines",
+                    "line": {"shape": "hv", "color": color, "width": 2, "dash": dash},
+                    "visible": index == 0,
+                    "meta": place,
+                    "hovertemplate": hover
                     + "<br>%{y} servers<extra>%{fullData.name}</extra>",
-                )
+                }
             )
     station_menu(
         figure=figure,
         stations=names if station is None else [],
     )
-    style(
-        figure=figure,
-        x_label=f"Simulation time ({result.settings.time_unit})",
-        y_label="Servers",
-    )
-    figure.update_layout(
+    figure["layout"].update(
         legend={"orientation": "v", "x": 1.02, "y": 1},
         margin={"l": 85, "r": 175, "t": 60, "b": 70},
     )
     if result.settings.drain:
-        figure.add_vline(
-            x=result.settings.duration,
-            line_color=GRAY,
-            line_dash="dash",
-        )
+        dashed_line(figure, result.settings.duration)
     warmup_line(figure, result)
     return figure
 
@@ -588,30 +663,19 @@ def plot_customer(result: Results, customer_id: int) -> go.Figure:
     return figure
 
 
-def figure_data(figure: go.Figure) -> dict:
-    """Return a figure as the plain JSON data the viewer pages embed."""
-    text = figure.to_json()
-    # Plotly returns None only for a JSON engine it does not know, and it
-    # rejects one before that point.
-    assert text is not None
-    return json.loads(text)
-
-
 def service_payload(result: Results) -> dict:
     """Return the data the service-network run view draws."""
     figures = {
-        "queues": page_figure(plot_queue(result)),
-        "waits": page_figure(plot_wait(result)),
-        "utilization": page_figure(plot_utilization(result)),
+        "queues": queue_figure(result),
+        "waits": wait_figure(result),
+        "utilization": utilization_figure(result),
     }
     if result._resources_vary:
-        figures["resources"] = page_figure(plot_resources(result))
+        figures["resources"] = resources_figure(result)
         # The page's switch swaps this figure into the resources chart.
-        stacked = page_figure(
-            plot_resources(
-                result,
-                stacked=True,
-            )
+        stacked = resources_figure(
+            result,
+            stacked=True,
         )
     else:
         stacked = None
@@ -651,48 +715,41 @@ def service_payload(result: Results) -> dict:
 STAGE_COLORS = [BLUE, ORANGE, GREEN, PURPLE, "#E69F00", "#56B4E9"]
 
 
-def warmup_line(figure: go.Figure, result: Results) -> None:
-    if result.settings.warmup > 0:
-        figure.add_vline(
-            x=result.settings.warmup,
-            line_color=GRAY,
-            line_dash="dash",
-        )
-
-
-def plot_orders(result: Results) -> go.Figure:
-    """Plot consumer demand and every stage's orders, which shows the bullwhip."""
+def orders_figure(result: Results) -> dict:
+    """Return consumer demand and every stage's orders, which shows the bullwhip."""
     names = chosen_stock_points(result, None)
     # chosen_stock_points raises for a run without a supply chain.
     supply = result.supply
     assert supply is not None
-    figure = go.Figure()
     retailer = result.inventory.filter(pl.col("stock_point") == names[0])
-    figure.add_trace(
-        go.Scatter(
-            x=trace_values(retailer.get_column("time")),
-            y=trace_values(retailer.get_column("demand")),
-            name=label(supply.chain[0]),
-            mode="lines",
-            line={"color": GRAY, "width": 2, "dash": "dot"},
-        )
-    )
+    figure = {
+        "data": [
+            {
+                "type": "scatter",
+                "x": trace_values(retailer.get_column("time")),
+                "y": trace_values(retailer.get_column("demand")),
+                "name": label(supply.chain[0]),
+                "mode": "lines",
+                "line": {"color": GRAY, "width": 2, "dash": "dot"},
+            }
+        ],
+        "layout": base_layout(
+            x_label=f"Review time ({result.settings.time_unit})",
+            y_label="Units per period",
+        ),
+    }
     for index, name in enumerate(names):
         rows = result.inventory.filter(pl.col("stock_point") == name)
-        figure.add_trace(
-            go.Scatter(
-                x=trace_values(rows.get_column("time")),
-                y=trace_values(rows.get_column("order_quantity")),
-                name=label(f"{name} orders"),
-                mode="lines",
-                line={"color": STAGE_COLORS[index % len(STAGE_COLORS)], "width": 2},
-            )
+        figure["data"].append(
+            {
+                "type": "scatter",
+                "x": trace_values(rows.get_column("time")),
+                "y": trace_values(rows.get_column("order_quantity")),
+                "name": label(f"{name} orders"),
+                "mode": "lines",
+                "line": {"color": STAGE_COLORS[index % len(STAGE_COLORS)], "width": 2},
+            }
         )
-    style(
-        figure=figure,
-        x_label=f"Review time ({result.settings.time_unit})",
-        y_label="Units per period",
-    )
     warmup_line(figure, result)
     # Startup orders can dwarf the measured weeks, so the initial view scales
     # to the periods after warm-up. Autoscaling restores the full range.
@@ -704,18 +761,24 @@ def plot_orders(result: Results) -> go.Figure:
                 pl.col("demand").max(),
             )
         ).item()
-        figure.update_yaxes(range=[0, 1.05 * top])
+        figure["layout"]["yaxis"]["range"] = [0, 1.05 * top]
     return figure
 
 
-def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure:
-    """Plot a stock point's stock, backorders, and orders over review times.
+def inventory_figure(result: Results, stock_point: str | None = None) -> dict:
+    """Return a stock point's stock, backorders, and orders over review times.
 
     Without a stock point, a menu chooses among the stock points, and the
     first is shown. A named stock point is the only one drawn.
     """
     names = chosen_stock_points(result, stock_point)
-    figure = go.Figure()
+    figure = {
+        "data": [],
+        "layout": base_layout(
+            x_label=f"Review time ({result.settings.time_unit})",
+            y_label="Units at the end of the period",
+        ),
+    }
     fields = [
         ("on_hand", BLUE, "On hand", "solid"),
         ("backorders", ORANGE, "Backorders", "solid"),
@@ -725,25 +788,21 @@ def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure
     for index, name in enumerate(names):
         rows = result.inventory.filter(pl.col("stock_point") == name)
         for field, color, trace_name, dash in fields:
-            figure.add_trace(
-                go.Scatter(
-                    x=trace_values(rows.get_column("time")),
-                    y=trace_values(rows.get_column(field)),
-                    name=trace_name,
-                    mode="lines",
-                    line={"color": color, "width": 2, "dash": dash},
-                    visible=index == 0,
-                    meta=name,
-                )
+            figure["data"].append(
+                {
+                    "type": "scatter",
+                    "x": trace_values(rows.get_column("time")),
+                    "y": trace_values(rows.get_column(field)),
+                    "name": trace_name,
+                    "mode": "lines",
+                    "line": {"color": color, "width": 2, "dash": dash},
+                    "visible": index == 0,
+                    "meta": name,
+                }
             )
     station_menu(
         figure=figure,
         stations=names if stock_point is None else [],
-    )
-    style(
-        figure=figure,
-        x_label=f"Review time ({result.settings.time_unit})",
-        y_label="Units at the end of the period",
     )
     warmup_line(figure, result)
     return figure
@@ -752,20 +811,21 @@ def plot_inventory(result: Results, stock_point: str | None = None) -> go.Figure
 def supply_payload(result: Results) -> dict:
     """Return the data the supply-chain run view draws."""
     figures = {
-        "orders": page_figure(plot_orders(result)),
-        "inventory": page_figure(plot_inventory(result)),
+        "orders": orders_figure(result),
+        "inventory": inventory_figure(result),
     }
     # A top stage that produces adds its stations, whose customers are jobs.
     if result.settings.capacities:
-        queues = plot_queue(result)
-        queues.update_yaxes(title_text="Jobs")
-        queues.update_traces(
-            hovertemplate=f"%{{x:.2f}} {label(result.settings.time_unit)}"
-            "<br>%{y} jobs<extra>%{fullData.name}</extra>"
-        )
-        figures["queues"] = page_figure(queues)
-        figures["utilization"] = page_figure(plot_utilization(result))
-    # plot_orders above raises for a run without a supply chain.
+        queues = queue_figure(result)
+        queues["layout"]["yaxis"]["title"]["text"] = "Jobs"
+        for trace in queues["data"]:
+            trace["hovertemplate"] = (
+                f"%{{x:.2f}} {label(result.settings.time_unit)}"
+                "<br>%{y} jobs<extra>%{fullData.name}</extra>"
+            )
+        figures["queues"] = queues
+        figures["utilization"] = utilization_figure(result)
+    # orders_figure above raises for a run without a supply chain.
     supply = result.supply
     assert supply is not None
     return {
@@ -805,23 +865,12 @@ def run_payload(result: Results) -> dict:
 
 @functools.cache
 def page_template() -> dict:
-    """Return the Plotly template every FlowSim figure uses, as page JSON."""
-    return figure_data(go.Figure(layout={"template": "plotly_white"}))["layout"][
-        "template"
-    ]
-
-
-def page_figure(figure: go.Figure) -> dict:
-    """Return a figure's JSON without its template.
-
-    Every page figure is styled with the shared template, which the page holds
-    once and each figure adds back when drawn, so this saves about 8 kB per
-    figure. Plotly writes its default template for a figure styled while a
-    page is built, and that copy is dropped too.
-    """
-    data = figure_data(figure)
-    data["layout"].pop("template", None)
-    return data
+    """Return the template plotly_figure gives every figure, as page JSON."""
+    text = go.Figure(layout={"template": "plotly_white"}).to_json()
+    # Plotly returns None only for a JSON engine it does not know, and it
+    # rejects one before that point.
+    assert text is not None
+    return json.loads(text)["layout"]["template"]
 
 
 def page_json(payload: object) -> str:

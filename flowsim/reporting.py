@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
-import plotly.graph_objects as go
 import polars as pl
 from scipy.stats import t
 
@@ -33,16 +32,15 @@ from flowsim.catalog import (
 )
 from flowsim.plots import (
     BLUE,
-    GRAY,
     STAGE_COLORS,
+    base_layout,
     building_page,
+    dashed_line,
     fill_template,
     label,
-    page_figure,
     page_json,
     page_parts,
     run_payload,
-    style,
 )
 from flowsim.records import interval_frame
 from flowsim.validation import number
@@ -215,27 +213,41 @@ def run_values(
     return values
 
 
-def estimate_rows(
-    experiment: Experiment,
+def scenario_values(
+    experiments: Mapping[str, Experiment],
     metric: str,
-    names: list[str | None],
+    found: Mapping[str, list[str | None]],
+) -> dict[str, dict[str | None, np.ndarray]]:
+    """Return each scenario's run values at the locations found for it."""
+    values = {}
+    for name, experiment in experiments.items():
+        try:
+            values[name] = run_values(
+                experiment=experiment,
+                metric=metric,
+                names=found[name],
+            )
+        except ValueError as error:
+            raise ValueError(f"Scenario {name!r}: {error}") from None
+    return values
+
+
+def estimate_rows(
+    values: Mapping[str | None, np.ndarray],
+    metric: str,
     level: float,
 ) -> list[dict]:
-    """Estimate one interval per location across an experiment's runs."""
-    values = run_values(
-        experiment=experiment,
-        metric=metric,
-        names=names,
-    )
+    """Estimate one interval per location from its run values."""
     return [
         {
             "metric": metric,
             location_column(metric): name,
-            "runs": len(experiment.runs),
-            **interval_estimate(values[name], level),
+            # run_values holds one value per replication.
+            "runs": len(runs),
+            **interval_estimate(runs, level),
             "confidence": level,
         }
-        for name in names
+        for name, runs in values.items()
     ]
 
 
@@ -260,12 +272,35 @@ def experiment_intervals(
     )
     return interval_frame(
         rows=estimate_rows(
-            experiment=experiment,
+            values=run_values(
+                experiment=experiment,
+                metric=metric,
+                names=names,
+            ),
             metric=metric,
-            names=names,
             level=level,
         ),
         keys=["metric", location_column(metric)],
+    )
+
+
+def scenario_intervals(
+    values: Mapping[str, Mapping[str | None, np.ndarray]],
+    metric: str,
+    level: float,
+) -> pl.DataFrame:
+    """Estimate each scenario's intervals from scenario_values."""
+    return interval_frame(
+        rows=[
+            {"scenario": name, **row}
+            for name, runs in values.items()
+            for row in estimate_rows(
+                values=runs,
+                metric=metric,
+                level=level,
+            )
+        ],
+        keys=["scenario", "metric", location_column(metric)],
     )
 
 
@@ -288,21 +323,55 @@ def comparison_intervals(
         station=station,
         stock_point=stock_point,
     )
+    return scenario_intervals(
+        values=scenario_values(
+            experiments=experiments,
+            metric=metric,
+            found=found,
+        ),
+        metric=metric,
+        level=level,
+    )
+
+
+def paired_differences(
+    experiments: Mapping[str, Experiment],
+    values: Mapping[str, Mapping[str | None, np.ndarray]],
+    reference: str,
+    metric: str,
+    level: float,
+) -> pl.DataFrame:
+    """Estimate each scenario minus the baseline within matched replications.
+
+    The values come from scenario_values. Each scenario is paired with the
+    baseline at every location they share. A missing value in either run
+    excludes that pair, not other observations.
+    """
+    column = location_column(metric)
+    seeds = [run.settings.seed for run in experiments[reference].runs]
+    baseline = values[reference]
     rows = []
     for name, experiment in experiments.items():
-        try:
-            estimates = estimate_rows(
-                experiment=experiment,
-                metric=metric,
-                names=found[name],
-                level=level,
-            )
-        except ValueError as error:
-            raise ValueError(f"Scenario {name!r}: {error}") from None
-        rows += [{"scenario": name, **row} for row in estimates]
+        if name == reference:
+            continue
+        if [run.settings.seed for run in experiment.runs] != seeds:
+            raise ValueError("Paired scenarios need identical replication seeds.")
+        rows += [
+            {
+                "scenario": name,
+                "baseline": reference,
+                "metric": metric,
+                column: place,
+                "runs": len(experiment.runs),
+                **interval_estimate(values[name][place] - baseline[place], level),
+                "confidence": level,
+            }
+            for place in baseline
+            if place in values[name]
+        ]
     return interval_frame(
         rows=rows,
-        keys=["scenario", "metric", location_column(metric)],
+        keys=["scenario", "baseline", "metric", column],
     )
 
 
@@ -314,11 +383,6 @@ def comparison_differences(
     stock_point: str | None,
     confidence: float,
 ) -> pl.DataFrame:
-    """Estimate each scenario minus the baseline within matched replications.
-
-    Each scenario is paired with the baseline at every location they share. A
-    missing value in either run excludes that pair, not other observations.
-    """
     level = confidence_level(confidence)
     check_request(
         metric=metric,
@@ -331,46 +395,16 @@ def comparison_differences(
         station=station,
         stock_point=stock_point,
     )
-    column = location_column(metric)
-    seeds = [run.settings.seed for run in experiments[reference].runs]
-    try:
-        baseline = run_values(
-            experiment=experiments[reference],
+    return paired_differences(
+        experiments=experiments,
+        values=scenario_values(
+            experiments=experiments,
             metric=metric,
-            names=found[reference],
-        )
-    except ValueError as error:
-        raise ValueError(f"Scenario {reference!r}: {error}") from None
-    rows = []
-    for name, experiment in experiments.items():
-        if name == reference:
-            continue
-        if [run.settings.seed for run in experiment.runs] != seeds:
-            raise ValueError("Paired scenarios need identical replication seeds.")
-        shared = [place for place in found[reference] if place in found[name]]
-        try:
-            values = run_values(
-                experiment=experiment,
-                metric=metric,
-                names=shared,
-            )
-        except ValueError as error:
-            raise ValueError(f"Scenario {name!r}: {error}") from None
-        rows += [
-            {
-                "scenario": name,
-                "baseline": reference,
-                "metric": metric,
-                column: place,
-                "runs": len(experiment.runs),
-                **interval_estimate(values[place] - baseline[place], level),
-                "confidence": level,
-            }
-            for place in shared
-        ]
-    return interval_frame(
-        rows=rows,
-        keys=["scenario", "baseline", "metric", column],
+            found=found,
+        ),
+        reference=reference,
+        metric=metric,
+        level=level,
     )
 
 
@@ -407,12 +441,12 @@ def interval_figure(
     time_unit: str,
     *,
     differences: bool = False,
-) -> go.Figure:
-    """Draw each interval-table row as a mean with its confidence limits.
+) -> dict:
+    """Return each interval-table row as a mean with its confidence limits.
 
     Rows are scenarios in a comparison and locations in an experiment. When a
     comparison covers several locations, each row names both, and each location
-    has its own color.
+    has its own color. The figure is plain data, as in flowsim.plots.
     """
     column = location_column(metric)
     rows = table.to_dicts()
@@ -426,41 +460,43 @@ def interval_figure(
             return place
         return label(row["scenario"]) + (f"<br>{place}" if several else "")
 
-    figure = go.Figure()
+    data = []
     for index, place in enumerate(places):
         chosen = [row for row in rows if row[column] == place]
         where = "" if place is None else f"<br>{label(place)}"
         color = (
             STAGE_COLORS[index % len(STAGE_COLORS)] if scenarios and several else BLUE
         )
-        figure.add_trace(
-            go.Scatter(
-                x=[row["mean"] for row in chosen],
-                y=[row_label(row) for row in chosen],
-                name="System" if place is None else label(place),
-                meta=place,
-                mode="markers",
-                marker={
-                    "size": 12,
-                    "color": color,
-                    "line": {"color": "black", "width": 1},
-                },
-                error_x={
-                    "type": "data",
-                    "array": [
-                        None if row["upper"] is None else row["upper"] - row["mean"]
-                        for row in chosen
-                    ],
-                    "thickness": 2.5,
-                    "width": 5,
-                },
-                showlegend=scenarios and several,
-                hovertemplate=(
-                    f"%{{y}}{'' if scenarios and several else where}"
-                    "<br>Estimate: %{x:.3f}<extra></extra>"
-                ),
-            )
-        )
+        trace = {
+            "type": "scatter",
+            "x": [row["mean"] for row in chosen],
+            "y": [row_label(row) for row in chosen],
+            "name": "System" if place is None else label(place),
+            "mode": "markers",
+            "marker": {
+                "size": 12,
+                "color": color,
+                "line": {"color": "black", "width": 1},
+            },
+            "error_x": {
+                "type": "data",
+                "array": [
+                    None if row["upper"] is None else row["upper"] - row["mean"]
+                    for row in chosen
+                ],
+                "thickness": 2.5,
+                "width": 5,
+            },
+            "showlegend": scenarios and several,
+            "hovertemplate": (
+                f"%{{y}}{'' if scenarios and several else where}"
+                "<br>Estimate: %{x:.3f}<extra></extra>"
+            ),
+        }
+        # A system row has no location, and Plotly writes no meta for None.
+        if place is not None:
+            trace["meta"] = place
+        data.append(trace)
     fraction = METRICS[metric].kind == "fraction"
     axis_label = metric_axis_label(
         metric=metric,
@@ -475,28 +511,19 @@ def interval_figure(
         y_label = SCOPES[METRICS[metric].scope].heading
     else:
         y_label = ""
-    style(
-        figure=figure,
+    layout = base_layout(
         x_label=axis_label,
         y_label=y_label,
     )
-    figure.update_layout(
-        height=max(240, 150 + 50 * len(rows)),
-        margin={"l": 155, "r": 35, "t": 35, "b": 80},
-    )
+    layout["height"] = max(240, 150 + 50 * len(rows))
+    layout["margin"] = {"l": 155, "r": 35, "t": 35, "b": 80}
     # List rows top to bottom in the order they were defined.
-    figure.update_yaxes(
-        autorange="reversed",
-        automargin=True,
-    )
+    layout["yaxis"].update(autorange="reversed", automargin=True)
     if fraction:
-        figure.update_xaxes(tickformat=".0%")
+        layout["xaxis"]["tickformat"] = ".0%"
+    figure = {"data": data, "layout": layout}
     if differences:
-        figure.add_vline(
-            x=0,
-            line_color=GRAY,
-            line_dash="dash",
-        )
+        dashed_line(figure, 0)
     return figure
 
 
@@ -533,8 +560,8 @@ def replication_figure(
     metric: str,
     place: str | None,
     time_unit: str,
-) -> go.Figure:
-    """Plot each replication's value, one marker series per scenario.
+) -> dict:
+    """Return each replication's value, one marker series per scenario.
 
     The values map each scenario (None for an experiment) to its runs in
     replication order, and a missing value leaves a gap. A scenario without
@@ -543,50 +570,48 @@ def replication_figure(
     from 0, which the dashboard uses to open that run. The position also sets
     the color, so a scenario keeps its color at every location.
     """
-    figure = go.Figure()
+    data = []
     for scenario, runs in values.items():
         index = scenarios.index(scenario)
-        figure.add_trace(
-            go.Scatter(
-                x=list(range(1, len(runs) + 1)),
-                y=runs,
-                name="Runs" if scenario is None else label(scenario),
-                mode="markers",
-                marker={
+        data.append(
+            {
+                "type": "scatter",
+                "x": list(range(1, len(runs) + 1)),
+                "y": runs,
+                "name": "Runs" if scenario is None else label(scenario),
+                "mode": "markers",
+                "marker": {
                     "size": 10,
                     "color": STAGE_COLORS[index % len(STAGE_COLORS)],
                     "line": {"color": "black", "width": 1},
                 },
-                customdata=[[index, run] for run in range(len(runs))],
-                showlegend=scenario is not None,
-                hovertemplate=(
+                "customdata": [[index, run] for run in range(len(runs))],
+                "showlegend": scenario is not None,
+                "hovertemplate": (
                     ("" if scenario is None else f"{label(scenario)}<br>")
                     + "Replication %{x}<br>Value: %{y:.3f}<extra></extra>"
                 ),
-            )
+            }
         )
     name, units = metric_axis_parts(
         metric=metric,
         place=place,
         time_unit=time_unit,
     )
-    style(
-        figure=figure,
+    layout = base_layout(
         x_label="Replication",
         y_label=name,
     )
-    figure.update_layout(
-        height=380,
-        margin={"l": 95, "r": 30, "t": 60, "b": 70},
-    )
+    layout["height"] = 380
+    layout["margin"] = {"l": 95, "r": 30, "t": 60, "b": 70}
     if units is not None:
         # The units take a second line, so a long title fits the chart's
-        # height. style escapes its labels, so the break is added here.
-        figure.update_yaxes(title_text=f"{label(name)}<br>{label(units)}")
-    figure.update_xaxes(rangemode="normal")
+        # height. base_layout escapes its labels, so the break is added here.
+        layout["yaxis"]["title"]["text"] = f"{label(name)}<br>{label(units)}"
+    layout["xaxis"]["rangemode"] = "normal"
     # Plotly labels fractional replications (1.2, 1.4) on a short axis.
     if max((len(runs) for runs in values.values()), default=0) <= 10:
-        figure.update_xaxes(dtick=1)
+        layout["xaxis"]["dtick"] = 1
     plotted = [value for runs in values.values() for value in runs if value is not None]
     if plotted:
         # A "tozero" range puts a zero value on the plot's lower edge, where
@@ -598,13 +623,13 @@ def replication_figure(
         if high == low:
             high = low + 1.0
         pad = 0.05 * (high - low)
-        figure.update_yaxes(
+        layout["yaxis"].update(
             range=[low - pad, high + pad],
             autorangeoptions={"minallowed": low - pad, "maxallowed": high + pad},
         )
     if METRICS[metric].kind == "fraction":
-        figure.update_yaxes(tickformat=".0%")
-    return figure
+        layout["yaxis"]["tickformat"] = ".0%"
+    return {"data": data, "layout": layout}
 
 
 # Metric menu headings, in catalog order.
@@ -612,26 +637,19 @@ _GROUPS = [(scope, facts.menu) for scope, facts in SCOPES.items()]
 
 
 def scenario_runs(
-    experiments: Mapping[str, Experiment],
-    found: Mapping[str, list[str | None]],
-    metric: str,
+    values: Mapping[str, Mapping[str | None, np.ndarray]],
     place: str | None,
 ) -> dict[str | None, list[float | None]]:
     """Return each scenario's run values at one location, None where missing.
 
-    A scenario without the location is left out.
+    The values come from scenario_values. A scenario without the location is
+    left out.
     """
-    runs: dict[str | None, list[float | None]] = {}
-    for name, experiment in experiments.items():
-        if place not in found[name]:
-            continue
-        values = run_values(
-            experiment=experiment,
-            metric=metric,
-            names=[place],
-        )[place]
-        runs[name] = [None if math.isnan(value) else float(value) for value in values]
-    return runs
+    return {
+        name: [None if math.isnan(value) else float(value) for value in runs[place]]
+        for name, runs in values.items()
+        if place in runs
+    }
 
 
 def metric_entry(
@@ -645,6 +663,7 @@ def metric_entry(
     None means no scenario's model can measure the metric. Each view holds
     the interval table and figure, the per-replication figure, and, in a
     comparison, the paired differences from each scenario as the baseline.
+    The run values are read once and feed all of them.
     """
     try:
         found = scenario_locations(
@@ -660,41 +679,46 @@ def metric_entry(
     settings = first.settings
     column = location_column(metric)
     if comparing:
-        table = comparison_intervals(
+        values = scenario_values(
             experiments=experiments,
             metric=metric,
-            station=None,
-            stock_point=None,
-            confidence=level,
+            found=found,
         )
+    else:
+        # An experiment's errors name no scenario, as experiment.intervals().
+        values = {
+            "": run_values(
+                experiment=first,
+                metric=metric,
+                names=found[""],
+            )
+        }
+    table = scenario_intervals(
+        values=values,
+        metric=metric,
+        level=level,
+    )
+    if comparing:
         changes = {
-            baseline: comparison_differences(
+            baseline: paired_differences(
                 experiments=experiments,
+                values=values,
                 reference=baseline,
                 metric=metric,
-                station=None,
-                stock_point=None,
-                confidence=level,
+                level=level,
             )
             for baseline in experiments
         }
     else:
-        table = experiment_intervals(
-            experiment=first,
-            metric=metric,
-            station=None,
-            stock_point=None,
-            confidence=level,
-        )
+        # An experiment's table has no scenario column, as experiment.intervals().
+        table = table.drop("scenario")
         changes = {}
     views = []
     for place in places:
         here = pl.col(column).is_null() if place is None else pl.col(column) == place
         chosen = table.filter(here)
         runs = scenario_runs(
-            experiments=experiments,
-            found=found,
-            metric=metric,
+            values=values,
             place=place,
         )
         paired = {baseline: rows.filter(here) for baseline, rows in changes.items()}
@@ -703,34 +727,28 @@ def metric_entry(
                 "title": METRICS[metric].label
                 + ("" if place is None else f" at {place}"),
                 "intervals": chosen.to_dicts(),
-                "means": page_figure(
-                    interval_figure(
-                        table=chosen,
-                        metric=metric,
-                        time_unit=settings.time_unit,
-                    )
+                "means": interval_figure(
+                    table=chosen,
+                    metric=metric,
+                    time_unit=settings.time_unit,
                 ),
-                "runs": page_figure(
-                    replication_figure(
-                        values=runs if comparing else {None: runs[""]},
-                        scenarios=list(experiments) if comparing else [None],
-                        metric=metric,
-                        place=place,
-                        time_unit=settings.time_unit,
-                    )
+                "runs": replication_figure(
+                    values=runs if comparing else {None: runs[""]},
+                    scenarios=list(experiments) if comparing else [None],
+                    metric=metric,
+                    place=place,
+                    time_unit=settings.time_unit,
                 ),
                 "changes": {
                     baseline: None
                     if rows.is_empty()
                     else {
                         "intervals": rows.to_dicts(),
-                        "figure": page_figure(
-                            interval_figure(
-                                table=rows,
-                                metric=metric,
-                                time_unit=settings.time_unit,
-                                differences=True,
-                            )
+                        "figure": interval_figure(
+                            table=rows,
+                            metric=metric,
+                            time_unit=settings.time_unit,
+                            differences=True,
                         ),
                     }
                     for baseline, rows in paired.items()
@@ -788,7 +806,7 @@ def dashboard(
         name: PageExperiment(experiment.runs)
         for name, experiment in experiments.items()
     }
-    # Figures styled here leave out the template, which the page holds once.
+    # Run views built here hold their record columns as typed arrays.
     with building_page():
         entries = [
             entry
