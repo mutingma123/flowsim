@@ -1,4 +1,4 @@
-"""Plotly figures and an offline viewer, with no notebook dependency."""
+"""Plotly figures, model diagrams, and page data, with no notebook dependency."""
 
 from __future__ import annotations
 

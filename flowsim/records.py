@@ -1,4 +1,4 @@
-"""Raw record tables: their schemas, the slotted records a run builds, and _frame."""
+"""Table schemas, the slotted records a run builds, and the frames made from them."""
 
 from __future__ import annotations
 

@@ -67,7 +67,7 @@ def next_arrival(
     # The exponential draw is dimensionless cumulative hazard. Rate has units
     # customers/time, and rate * elapsed time is the hazard spent in a segment.
     hazard = float(rng.exponential(scale=1))
-    index = bisect_right([point[0] for point in points], now) - 1
+    index = bisect_right(points, now, key=lambda point: point[0]) - 1
     cursor = now
     while cursor < horizon:
         rate = points[index][1]

@@ -6,7 +6,7 @@ import math
 import zlib
 from collections import deque
 from collections.abc import Mapping
-from dataclasses import dataclass, field, fields, replace
+from dataclasses import dataclass, field, fields
 from numbers import Real
 from typing import TYPE_CHECKING
 
@@ -669,7 +669,7 @@ class _Run:
         closing_states = {}
         for name in self.histories:
             self.observe(name)
-            closing_states[name] = replace(self.histories[name][-1])
+            closing_states[name] = self.histories[name][-1]
         if self.drain:
             if self.active_customers == 0:
                 self.finished.succeed()

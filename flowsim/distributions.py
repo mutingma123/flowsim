@@ -14,6 +14,7 @@ never holds random state.
 
 from __future__ import annotations
 
+import functools
 import html
 import math
 from abc import ABC, abstractmethod
@@ -68,8 +69,6 @@ class Distribution(ABC):
     >>> exponential(mean=4)(np.random.default_rng(1))  # one draw, a float
     """
 
-    # Names of the dataclass fields shown in repr, in order.
-    _names: tuple[str, ...] = ()
     # Declared only: each subclass supplies these as a field or a property.
     mean: float
     sd: float
@@ -94,7 +93,11 @@ class Distribution(ABC):
         """
 
     def __repr__(self) -> str:
-        shown = ", ".join(f"{name}={_fmt(getattr(self, name))}" for name in self._names)
+        # Every subclass that keeps this repr is a dataclass.
+        shown = ", ".join(
+            f"{item.name}={_fmt(getattr(self, item.name))}"
+            for item in fields(self)  # pyright: ignore[reportArgumentType]
+        )
         return f"{type(self).__name__}({shown})"
 
     def _repr_html_(self) -> str:
@@ -132,7 +135,6 @@ class Distribution(ABC):
 @dataclass(frozen=True, repr=False)
 class Exponential(Distribution):
     mean: float
-    _names = ("mean",)
 
     @property
     def sd(self) -> float:
@@ -177,7 +179,6 @@ def exponential(*, mean: float) -> Exponential:
 class Uniform(Distribution):
     low: float
     high: float
-    _names = ("low", "high")
 
     @property
     def mean(self) -> float:
@@ -242,7 +243,6 @@ class Triangular(Distribution):
     low: float
     mode: float
     high: float
-    _names = ("low", "mode", "high")
 
     @property
     def mean(self) -> float:
@@ -296,13 +296,12 @@ class Pert(Distribution):
     low: float
     mode: float
     high: float
-    _names = ("low", "mode", "high")
 
-    @property
+    @functools.cached_property
     def _alpha(self) -> float:
         return 1 + 4 * (self.mode - self.low) / (self.high - self.low)
 
-    @property
+    @functools.cached_property
     def _beta(self) -> float:
         return 1 + 4 * (self.high - self.mode) / (self.high - self.low)
 
@@ -357,7 +356,6 @@ def pert(*, low: float, mode: float, high: float) -> Pert:
 class Normal(Distribution):
     mean: float
     sd: float
-    _names = ("mean", "sd")
 
     def __call__(self, rng):
         return float(rng.normal(loc=self.mean, scale=self.sd))
@@ -408,15 +406,14 @@ def normal(*, mean: float, sd: float) -> Normal:
 class Lognormal(Distribution):
     mean: float
     sd: float
-    _names = ("mean", "sd")
 
-    @property
+    @functools.cached_property
     def _sigma(self) -> float:
         # Divide before squaring and use log1p, so a tiny or huge scale and a
         # small coefficient of variation keep their precision.
         return math.sqrt(math.log1p((self.sd / self.mean) ** 2))
 
-    @property
+    @functools.cached_property
     def _mu(self) -> float:
         return math.log(self.mean) - self._sigma**2 / 2
 
@@ -468,7 +465,6 @@ def lognormal(*, mean: float, sd: float) -> Lognormal:
 class Gamma(Distribution):
     shape: float
     scale: float
-    _names = ("shape", "scale")
 
     @property
     def mean(self) -> float:
@@ -524,7 +520,6 @@ def gamma(*, shape: float, scale: float) -> Gamma:
 class Weibull(Distribution):
     shape: float
     scale: float
-    _names = ("shape", "scale")
 
     @property
     def mean(self) -> float:
@@ -599,7 +594,6 @@ def weibull(*, shape: float, scale: float) -> Weibull:
 class Erlang(Distribution):
     k: int
     mean: float
-    _names = ("k", "mean")
 
     @property
     def sd(self) -> float:
@@ -650,7 +644,6 @@ class Beta(Distribution):
     b: float
     low: float
     high: float
-    _names = ("a", "b", "low", "high")
 
     @property
     def mean(self) -> float:
@@ -712,7 +705,6 @@ def beta(*, a: float, b: float, low: float = 0, high: float = 1) -> Beta:
 @dataclass(frozen=True, repr=False)
 class Empirical(Distribution):
     values: tuple[float, ...]
-    _names = ()
 
     @property
     def mean(self) -> float:
@@ -784,7 +776,6 @@ def empirical(data: Sequence[float]) -> Empirical:
 @dataclass(frozen=True, repr=False)
 class Poisson(Distribution):
     mean: float
-    _names = ("mean",)
 
     @property
     def sd(self) -> float:
@@ -829,7 +820,6 @@ def poisson(*, mean: float) -> Poisson:
 class Discrete(Distribution):
     values: tuple[float, ...]
     probabilities: tuple[float, ...]
-    _names = ("values", "probabilities")
 
     @property
     def mean(self) -> float:
@@ -938,14 +928,13 @@ def discrete(
 class NegativeBinomial(Distribution):
     mean: float
     sd: float
-    _names = ("mean", "sd")
 
-    @property
+    @functools.cached_property
     def _n(self) -> float:
         # Variance = mean + mean^2 / n, so n = mean^2 / (variance - mean).
         return self.mean**2 / (self.sd**2 - self.mean)
 
-    @property
+    @functools.cached_property
     def _p(self) -> float:
         # NumPy counts failures before the n-th success with success chance p,
         # whose mean n (1 - p) / p equals mean when p = mean / variance.

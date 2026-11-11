@@ -244,6 +244,13 @@ def test_ties_warn_but_distinct_values_do_not():
         fit_all(README_DATA)
 
 
+@pytest.mark.parametrize("fitter", [fit_all, best_fit])
+def test_the_rounding_warning_points_at_the_calling_line(fitter):
+    with pytest.warns(UserWarning, match="values look rounded") as caught:
+        fitter([1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0])
+    assert caught[0].filename == __file__
+
+
 def test_pick_by_name_and_rank():
     fits = fit_all(README_DATA)
     assert len(fits) == 5

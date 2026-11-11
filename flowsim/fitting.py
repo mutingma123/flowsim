@@ -14,9 +14,10 @@ from __future__ import annotations
 
 import html
 import math
+import os
 import warnings
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from typing import Any
 
 import numpy as np
@@ -47,7 +48,7 @@ from flowsim.plots import BLUE, GRAY, GREEN, ORANGE, PURPLE, style
 # durations (gamma, lognormal, Weibull), and symmetric durations far from zero
 # (normal). The four skewed families are fitted with location fixed at zero,
 # since a duration cannot start below zero, and the normal is skipped by
-# `Fits.best` whenever it would draw a negative value. Uniform, triangular, and
+# `Fits.best` whenever its chance of a negative draw exceeds NEGATIVE_LIMIT. Uniform, triangular, and
 # beta can be fitted by naming them in `families=`, but they are not searched:
 # with free endpoints that hug the sample's minimum and maximum, they win AIC on
 # data from unrelated families (beta wins on most exponential samples). Johnson,
@@ -101,7 +102,8 @@ def _short(distribution: Distribution) -> str:
     if isinstance(distribution, Shifted):
         return f"Shifted({_short(distribution.distribution)}, by={distribution.by:.3g})"
     shown = ", ".join(
-        f"{n}={getattr(distribution, n):.3g}" for n in distribution._names
+        f"{item.name}={getattr(distribution, item.name):.3g}"
+        for item in fields(distribution)  # pyright: ignore[reportArgumentType]
     )
     return f"{type(distribution).__name__}({shown})"
 
@@ -217,7 +219,8 @@ class Fit(Distribution):
 class Fits:
     """Fitted families ranked by AIC, returned by ``fit_all``.
 
-    ``fits.best`` is the top-ranked fit that cannot draw a negative value,
+    ``fits.best`` is the top-ranked fit whose chance of a negative draw is at
+    most 1e-6 (such a draw still stops a run),
     ``fits.pick("gamma")`` or ``fits.pick(2)`` chooses another,
     ``fits.table`` compares them, ``fits.failed`` lists families that did not
     fit and why, and ``fits.plot()`` overlays the fits on the data. Iterating
@@ -873,19 +876,20 @@ def _data(data, discrete: bool) -> np.ndarray:
 
 
 def _warn_if_rounded(values: np.ndarray) -> None:
-    _, inverse, counts = np.unique(
+    _, counts = np.unique(
         values,
-        return_inverse=True,
         return_counts=True,
     )
-    tied = float(np.mean(counts[inverse] > 1))
+    # The share of observations that equal another observation.
+    tied = float(counts[counts > 1].sum() / values.size)
     zeros = int(np.sum(values == 0))
     if tied > 0.1 or zeros:
         warnings.warn(
             f"Fitting data: {_ROUNDED}. {tied:.0%} of values equal another "
             f"value and {zeros} are exactly zero.",
             UserWarning,
-            stacklevel=3,
+            # Point at the caller's line, whichever fitting function it called.
+            skip_file_prefixes=(os.path.dirname(__file__),),
         )
 
 

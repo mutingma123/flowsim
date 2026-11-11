@@ -623,6 +623,21 @@ def test_saved_page_opens_from_its_saved_path(opened, capsys):
     assert not Path("output").exists()
 
 
+def test_saved_page_reopens_at_its_file_after_a_directory_change(
+    tmp_path, opened, monkeypatch
+):
+    viewer = deterministic_queue().run(duration=7).viewer("pages/run.html")
+    saved = tmp_path / "pages" / "run.html"
+    saved.unlink()
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    assert viewer.open() == Path("pages/run.html")
+    assert opened == [saved.as_uri()]
+    assert saved.read_text(encoding="utf-8") == viewer.html
+    assert list(elsewhere.iterdir()) == []
+
+
 def test_headline_columns_come_first_in_tables_and_exports(service_run, tmp_path):
     assert service_run.stations.columns[:6] == [
         "station",

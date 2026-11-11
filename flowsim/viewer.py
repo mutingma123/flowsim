@@ -32,6 +32,7 @@ class Viewer:
         # The frame height in a notebook, in pixels. The page scrolls inside it.
         self._height = height
         self._path: Path | None = None
+        self._saved: Path | None = None
 
     @property
     def html(self) -> str:
@@ -65,13 +66,16 @@ class Viewer:
             encoding="utf-8",
         )
         self._path = destination
+        # Resolved now, so open() writes this file after a change of working
+        # directory.
+        self._saved = destination.resolve()
         return destination
 
     def open(self) -> Path:
         """Show the page in the default web browser and return its file.
 
         A saved page is written again to its saved path. A page that was never
-        saved is written to output/flowsim-<kind>.html under the current working
+        saved is written to output/flowsim-<name>.html under the current working
         directory (e.g., output/flowsim-results.html), which each call replaces.
         The method prints the file's path.
 
@@ -84,22 +88,22 @@ class Viewer:
         -------
         >>> viewer.open()
         """
-        if self._path is None:
+        if self._path is None or self._saved is None:
             # Resolved once, so the returned path survives a later change of
             # working directory.
-            path = (OPEN_FOLDER / f"flowsim-{self._name}.html").resolve()
-            path.parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-            path.write_text(
-                data=self._document,
-                encoding="utf-8",
-            )
+            path = target = (OPEN_FOLDER / f"flowsim-{self._name}.html").resolve()
         else:
-            path = self.save(self._path)
-        print(f"Opening {path.resolve()}")
-        webbrowser.open(path.resolve().as_uri())
+            path, target = self._path, self._saved
+        target.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        target.write_text(
+            data=self._document,
+            encoding="utf-8",
+        )
+        print(f"Opening {target}")
+        webbrowser.open(target.as_uri())
         return path
 
     def _repr_html_(self) -> str:

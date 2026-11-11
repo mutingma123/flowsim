@@ -45,8 +45,8 @@ class OrderUpTo:
         """
         forecast = self.forecast.forecast(history)
         safety = 0.0
-        recent = history[-self.forecast.window :]
-        if self.safety_factor > 0 and len(recent) == self.forecast.window:
+        if self.safety_factor > 0 and len(history) >= self.forecast.window:
+            recent = history[-self.forecast.window :]
             mean = sum(recent) / len(recent)
             variance = sum((value - mean) ** 2 for value in recent) / (len(recent) - 1)
             safety = self.safety_factor * math.sqrt(cover) * math.sqrt(variance)

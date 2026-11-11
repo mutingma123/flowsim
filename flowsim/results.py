@@ -6,7 +6,7 @@ import difflib
 import functools
 import html
 import math
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, fields, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -261,6 +261,16 @@ _DROPPED = (
     "This run's raw records were dropped by model.experiment(..., "
     "keep_records=False). Rerun with keep_records=True to keep them."
 )
+
+
+def stack(
+    parts: Iterable[tuple[object, pl.DataFrame]],
+    column: str,
+) -> pl.DataFrame:
+    """Stack labeled tables, with each table's label in a new first column."""
+    return pl.concat(
+        [table.select(pl.lit(value).alias(column), pl.all()) for value, table in parts]
+    )
 
 
 class Results:
@@ -1280,40 +1290,32 @@ class Experiment:
     @property
     def stations(self) -> pl.DataFrame:
         """Return every run's stations table, stacked, with a replication column."""
-        return pl.concat(
-            [
-                run.stations.select(
-                    pl.lit(index).alias("replication"),
-                    pl.all(),
-                )
-                for index, run in enumerate(self.runs, start=1)
-            ]
+        return stack(
+            parts=(
+                (index, run.stations) for index, run in enumerate(self.runs, start=1)
+            ),
+            column="replication",
         )
 
     @property
     def stock_points(self) -> pl.DataFrame:
         """Return every run's stock_points table, stacked, with a replication column."""
-        return pl.concat(
-            [
-                run.stock_points.select(
-                    pl.lit(index).alias("replication"),
-                    pl.all(),
-                )
+        return stack(
+            parts=(
+                (index, run.stock_points)
                 for index, run in enumerate(self.runs, start=1)
-            ]
+            ),
+            column="replication",
         )
 
     @property
     def summary(self) -> pl.DataFrame:
         """Return every run's summary table, stacked, with a replication column."""
-        return pl.concat(
-            [
-                run.summary.select(
-                    pl.lit(index).alias("replication"),
-                    pl.all(),
-                )
-                for index, run in enumerate(self.runs, start=1)
-            ]
+        return stack(
+            parts=(
+                (index, run.summary) for index, run in enumerate(self.runs, start=1)
+            ),
+            column="replication",
         )
 
     @property
