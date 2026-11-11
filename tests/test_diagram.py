@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from flowsim import Model, exponential, moving_average, order_up_to
-from flowsim.plots import chain_positions, layout_layers
+from flowsim.diagram import chain_positions, layout_layers
 from tests.models import (
     beer_chain,
     deterministic_queue,

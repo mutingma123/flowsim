@@ -4,8 +4,9 @@ This is a general Python package for classroom service-network simulations.
 Keep the event scheduler in `flowsim/scheduler.py`, simulation processes in
 `flowsim/engine.py` and `flowsim/station.py`, stock-point forecasts and
 ordering policies in `flowsim/policies.py`, named duration and demand
-distributions in `flowsim/distributions.py`, and notebook interfaces in
-`examples/`. FlowSim has no SimPy dependency.
+distributions in `flowsim/distributions.py`, model diagrams in
+`flowsim/diagram.py`, shared text and HTML displays in `flowsim/display.py`,
+and notebook interfaces in `examples/`. FlowSim has no SimPy dependency.
 
 - Use Pixi for Python commands and dependencies.
 - Numeric outputs are classroom tables, CSV files, and interactive plots.

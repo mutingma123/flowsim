@@ -1326,8 +1326,10 @@ def test_imports_follow_the_dependency_direction():
         for module in modules(ast.walk(trees["validation.py"]))
     )
     # Module-level statements only, so imports under TYPE_CHECKING are left out.
-    for name in ["plots.py", "reporting.py"]:
+    for name in ["plots.py", "reporting.py", "diagram.py", "display.py"]:
         assert "flowsim.results" not in modules(trees[name].body)
+    # diagram.py draws with plots.py's styles, and plots.py never imports it.
+    assert "flowsim.diagram" not in modules(ast.walk(trees["plots.py"]))
     local = {
         (name, module)
         for name, tree in trees.items()

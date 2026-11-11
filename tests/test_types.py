@@ -13,7 +13,7 @@ import polars as pl
 import pytest
 
 from flowsim import Model
-from flowsim.plots import layout_layers
+from flowsim.diagram import layout_layers
 from tests.models import job_shop
 
 

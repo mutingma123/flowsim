@@ -11,16 +11,15 @@ from typing import TYPE_CHECKING, Literal
 import networkx as nx
 import numpy as np
 
+from flowsim.diagram import chain_diagram, network_diagram
+from flowsim.display import display_html, display_text
 from flowsim.distributions import Distribution
 from flowsim.engine import simulate
-from flowsim.plots import chain_diagram, network_diagram
 from flowsim.policies import OrderUpTo
 from flowsim.records import SUPPLIER
 from flowsim.results import (
     Experiment,
     Results,
-    display_html,
-    display_text,
 )
 from flowsim.schedules import validate_schedule
 from flowsim.validation import Duration, integer, number

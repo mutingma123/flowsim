@@ -10,6 +10,12 @@ import plotly.graph_objects as go
 import polars as pl
 
 from flowsim.catalog import unknown
+from flowsim.display import (
+    display_html,
+    display_text,
+    missing_attribute,
+    window_line,
+)
 from flowsim.model import Model
 from flowsim.reporting import (
     comparison_differences,
@@ -23,11 +29,7 @@ from flowsim.results import (
     Experiment,
     Settings,
     _run_settings,
-    display_html,
-    display_text,
-    missing_attribute,
     stack,
-    window_line,
 )
 from flowsim.viewer import Viewer
 
